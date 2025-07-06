@@ -2,7 +2,7 @@
 
 ## Overview
 
-This application is a Slack message ingestion worker that automatically fetches messages from specified Slack channels, generates embeddings using OpenAI, stores them in Pinecone vector database, and logs operations to Notion. The system runs as a background service with scheduled intervals to continuously process new messages.
+This application is a Slack message vector search API that provides semantic search capabilities for Slack messages. It automatically fetches messages from specified Slack channels, generates embeddings using OpenAI, stores them in vector storage, and logs operations to Notion. The system runs as a web service with background processing for continuous message ingestion and provides REST API endpoints for other repositories to search indexed messages.
 
 ## System Architecture
 
@@ -11,19 +11,50 @@ The application follows a modular, service-oriented architecture with clear sepa
 ### Core Components
 - **Configuration Management**: Centralized config using environment variables and dataclasses
 - **Data Models**: Type-safe data structures for Slack entities and logging
+- **Web API**: FastAPI-based REST API with endpoints for semantic search and status monitoring
 - **Service Layer**: Separate services for Slack ingestion, embedding generation, vector storage, and logging
-- **Scheduling**: Background task management with initial ingestion and periodic updates
+- **Background Processing**: Automated message ingestion with initial bulk processing and hourly updates
 - **Rate Limiting**: Built-in rate limiting to respect API quotas
 - **State Management**: Persistent state tracking for resumable operations
 
 ### Technology Stack
 - **Language**: Python with async/await for concurrent operations
+- **Web Framework**: FastAPI for REST API endpoints with automatic documentation
+- **Server**: Uvicorn ASGI server for production deployment
 - **Slack Integration**: slack-sdk for API interactions
 - **AI/ML**: OpenAI API for text embeddings (text-embedding-3-small model)
-- **Vector Database**: Pinecone for similarity search and storage
+- **Vector Storage**: File-based vector storage for deployment compatibility
 - **Documentation**: Notion API for operation logging
 - **Scheduling**: APScheduler for background job management
 - **Data Processing**: Custom text chunking and rate limiting
+
+## API Endpoints
+
+The application exposes REST API endpoints for external repositories to search indexed Slack messages:
+
+### Search Endpoints
+- **POST /search**: Semantic search with full filtering options
+- **GET /search**: Simplified search using query parameters (e.g., `?q=hello&top_k=5`)
+- **GET /channels**: List all indexed Slack channels
+
+### Monitoring Endpoints  
+- **GET /health**: Health check with background worker and storage status
+- **GET /stats**: Index statistics including total vectors and last refresh time
+- **POST /refresh**: Manually trigger message refresh (async background task)
+
+### Usage Examples
+```bash
+# Simple search
+curl "http://localhost:5000/search?q=deployment&top_k=3"
+
+# Advanced search with filters
+curl -X POST http://localhost:5000/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "error handling", "top_k": 5, "channel_filter": "general"}'
+
+# Health check
+curl http://localhost:5000/health
+```
 
 ## Key Components
 
@@ -111,17 +142,17 @@ The application is designed as a long-running background service:
 - Includes validation and helpful error messages for missing config
 
 ### Deployment Configuration
-- **Type**: Background Worker (NOT Cloud Run web server)
+- **Type**: Cloud Run web service (serves REST API on port 5000)
 - **Run Command**: `python main.py`
-- **Build Command**: Leave empty for background workers
-- **Dependencies**: Managed via pyproject.toml with proper Pinecone v7.3.0+
-- **Port**: Not applicable (no web server needed)
+- **Build Command**: Leave empty for Python web applications
+- **Dependencies**: Managed via pyproject.toml with FastAPI and uvicorn
+- **Port**: 5000 (web server with background worker integration)
 
 ### Deployment Requirements
-1. Use Reserved VM or Background Worker deployment type
+1. Use Cloud Run deployment type for web service
 2. Set run command to `python main.py`
 3. Ensure all required environment variables are configured
-4. No build command needed for Python background workers
+4. Application serves HTTP requests on port 5000 with background processing
 
 ### Operational Modes
 - **Initial Ingestion**: Bulk processing of historical messages
@@ -171,6 +202,7 @@ After initial ingestion completes, the system automatically switches to hourly i
 - July 06, 2025: Fixed deployment compatibility issues - updated Pinecone service to use modern v7.3.0 API with Pinecone class and ServerlessSpec, removed deprecated init function usage, confirmed all tests passing
 - July 06, 2025: Resolved all deployment failures - fixed Notion database schema mismatches, added robust error handling for invalid Slack channels, corrected all property names and types, worker now running successfully with 28+ vectors stored
 - July 06, 2025: Final deployment compatibility fixes - removed problematic Pinecone packages entirely, implemented file-based vector storage for deployment reliability, fixed Cloud Run vs Background Worker configuration issues, all tests passing with worker running successfully
+- July 06, 2025: **Major Architecture Update** - Transformed application from background worker to web API service with FastAPI, added REST endpoints for semantic search (/search, /health, /stats, /channels), integrated background processing into web server lifecycle, successfully deployed as Cloud Run web service on port 5000
 
 ## User Preferences
 

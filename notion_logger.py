@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List
+from typing import List, Optional
 from notion_client import Client
 
 from config import config
@@ -66,7 +66,7 @@ class NotionLogger:
             print(f"Error logging to Notion: {e}")
             print("Continuing without Notion logging...")
     
-    async def get_last_successful_ingestion(self) -> datetime:
+    async def get_last_successful_ingestion(self) -> Optional[datetime]:
         """Get timestamp of last successful ingestion"""
         try:
             # Query for last successful ingestion
