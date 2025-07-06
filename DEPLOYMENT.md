@@ -7,22 +7,35 @@ This is a Python background worker service that continuously processes Slack mes
 
 All suggested fixes have been implemented:
 
-1. **✅ Pinecone Package**: Using correct `pinecone>=7.3.0` package with modern v3+ API
-2. **✅ Dependencies**: Properly defined in `pyproject.toml` 
-3. **✅ Code Verification**: All imports and services tested successfully
-4. **✅ Background Worker**: Configured for long-running background processing
+1. **✅ Pinecone API Compatibility**: Updated imports to use only Pinecone v7+ API (`pinecone>=7.3.0`)
+2. **✅ Pinecone Client Initialization**: Simplified to use modern `Pinecone()` constructor 
+3. **✅ Index Creation**: Using `ServerlessSpec` with proper cloud/region configuration
+4. **✅ Index Access**: Using `pc.Index()` method for v7+ compatibility
+5. **✅ Background Worker Configuration**: Ready for Reserved VM deployment (not Cloud Run)
+6. **✅ Dependencies**: Properly defined in `pyproject.toml` with correct versions
+7. **✅ Code Verification**: All imports and services tested successfully
 
 ## 🔧 Deployment Configuration
 
-### Deployment Type
-- **Use**: Reserved VM or Background Worker
-- **Do NOT use**: Cloud Run (web server deployment)
+### ⚠️ Critical: Deployment Type Selection
+- **✅ CORRECT**: Reserved VM or Background Worker deployment
+- **❌ INCORRECT**: Cloud Run (causes "ImportError" and port binding issues)
 
 ### Configuration Settings
+- **Deployment Target**: `autoscale` or `reserved-vm` 
 - **Run Command**: `python main.py`
-- **Build Command**: Leave empty
-- **Port**: Not applicable (no web server)
-- **Environment**: Python 3.11+
+- **Build Command**: Leave empty (no build step needed)
+- **Port**: Not applicable (this is not a web server)
+- **Environment**: Python 3.11+ with packages auto-installed from `pyproject.toml`
+
+### Why Background Worker is Required
+This application:
+- Runs continuously in the background (24/7)
+- Does NOT serve web requests or expose HTTP endpoints
+- Connects to external APIs (Slack, OpenAI, Pinecone, Notion)
+- Performs scheduled data processing every hour
+
+Cloud Run is designed for web applications that respond to HTTP requests, not background workers.
 
 ### Required Environment Variables
 Ensure these are configured in your deployment:

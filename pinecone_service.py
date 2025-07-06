@@ -2,7 +2,7 @@ import asyncio
 from typing import List, Tuple, Optional
 from datetime import datetime
 
-# Import Pinecone v7.3.0+ API components
+# Import Pinecone v7+ API
 from pinecone import Pinecone, ServerlessSpec
 
 from config import config
@@ -17,7 +17,7 @@ class PineconeService:
         self.index = self.pc.Index(self.index_name)
     
     def _ensure_index_exists(self):
-        """Create index if it doesn't exist (Pinecone v3+ API)"""
+        """Create index if it doesn't exist (Pinecone v7+ API)"""
         existing_indexes = self.pc.list_indexes().names()
         
         if self.index_name not in existing_indexes:
@@ -36,8 +36,6 @@ class PineconeService:
             import time
             while self.index_name not in self.pc.list_indexes().names():
                 time.sleep(1)
-    
-
     
     async def upsert_embeddings(self, embeddings_data: List[Tuple[str, List[float], dict]], 
                                batch_size: int = 100) -> int:
@@ -82,7 +80,7 @@ class PineconeService:
             }
         except Exception as e:
             print(f"Error getting index stats: {e}")
-            return {}
+            return {'total_vector_count': 0, 'dimension': 0, 'index_fullness': 0.0}
     
     def is_index_empty(self) -> bool:
         """Check if the index is empty"""
@@ -92,22 +90,13 @@ class PineconeService:
     async def delete_old_vectors(self, before_timestamp: datetime):
         """Delete vectors older than specified timestamp"""
         try:
-            # Query for old vectors
-            query_response = self.index.query(
-                vector=[0.0] * 1536,  # Dummy vector
-                filter={
-                    "timestamp": {"$lt": before_timestamp.isoformat()}
-                },
-                top_k=10000,
-                include_metadata=True
-            )
+            # Convert timestamp to string for comparison
+            timestamp_str = before_timestamp.isoformat()
             
-            # Delete old vectors
-            if query_response.matches:
-                ids_to_delete = [match.id for match in query_response.matches]
-                self.index.delete(ids=ids_to_delete)
-                print(f"Deleted {len(ids_to_delete)} old vectors from Pinecone")
-                
+            # Delete vectors with timestamp metadata older than specified
+            filter_query = {"timestamp": {"$lt": timestamp_str}}
+            self.index.delete(filter=filter_query)
+            print(f"Deleted vectors older than {timestamp_str}")
         except Exception as e:
             print(f"Error deleting old vectors: {e}")
     
@@ -124,12 +113,13 @@ class PineconeService:
             )
             
             results = []
-            for match in response.matches:
-                results.append({
-                    'id': match.id,
-                    'score': match.score,
-                    'metadata': match.metadata
-                })
+            if hasattr(response, 'matches'):
+                for match in response.matches:
+                    results.append({
+                        'id': match.id,
+                        'score': match.score,
+                        'metadata': match.metadata
+                    })
             
             return results
             
