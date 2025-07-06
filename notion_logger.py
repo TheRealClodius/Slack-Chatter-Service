@@ -15,26 +15,39 @@ class NotionLogger:
         try:
             # Prepare properties for Notion database
             properties = {
+                "Name": {
+                    "title": [
+                        {
+                            "text": {
+                                "content": f"{log.operation} - {log.timestamp.strftime('%Y-%m-%d %H:%M:%S')}"
+                            }
+                        }
+                    ]
+                },
                 "Timestamp": {
                     "date": {
                         "start": log.timestamp.isoformat()
                     }
                 },
                 "Operation": {
-                    "select": {
-                        "name": log.operation
-                    }
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": log.operation
+                            }
+                        }
+                    ]
                 },
-                "Channels Processed": {
+                "Channels": {
                     "number": log.channels_processed
                 },
-                "Messages Processed": {
+                "Messages": {
                     "number": log.messages_processed
                 },
-                "Embeddings Generated": {
+                "Embeddings": {
                     "number": log.embeddings_generated
                 },
-                "Duration (seconds)": {
+                "Duration": {
                     "number": log.duration_seconds
                 },
                 "Success": {
@@ -102,11 +115,12 @@ class NotionLogger:
         except Exception as e:
             print(f"Error verifying Notion database schema: {e}")
             print("Please ensure your Notion database has the following columns:")
+            print("- Name (Title)")
             print("- Timestamp (Date)")
-            print("- Operation (Select)")
-            print("- Channels Processed (Number)")
-            print("- Messages Processed (Number)")
-            print("- Embeddings Generated (Number)")
-            print("- Duration (seconds) (Number)")
+            print("- Operation (Text)")
+            print("- Channels (Number)")
+            print("- Messages (Number)")
+            print("- Embeddings (Number)")
+            print("- Duration (Number)")
             print("- Success (Checkbox)")
             print("- Errors (Text)")

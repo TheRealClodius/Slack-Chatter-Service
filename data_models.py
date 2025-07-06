@@ -69,7 +69,7 @@ class SlackMessage:
             "channel_id": self.channel_id,
             "channel_name": self.channel_name,
             "timestamp": self.timestamp.isoformat(),
-            "thread_ts": self.thread_ts,
+            "thread_ts": self.thread_ts if self.thread_ts else "",
             "is_thread_parent": self.is_thread_parent,
             "reply_count": self.reply_count,
             "reaction_count": len(self.reactions),
