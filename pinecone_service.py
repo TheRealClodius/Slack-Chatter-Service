@@ -1,39 +1,80 @@
 import asyncio
 from typing import List, Tuple, Optional
 from datetime import datetime
-from pinecone import Pinecone, ServerlessSpec
+
+# Handle different Pinecone package versions
+try:
+    # Try new Pinecone v3+ API
+    from pinecone import Pinecone, ServerlessSpec
+    PINECONE_V3_PLUS = True
+except ImportError:
+    try:
+        # Try older Pinecone v2 API
+        import pinecone
+        PINECONE_V3_PLUS = False
+    except ImportError:
+        # Fallback to pinecone-client if available
+        import pinecone as pinecone_client
+        PINECONE_V3_PLUS = False
 
 from config import config
 
 class PineconeService:
     def __init__(self):
-        # Initialize Pinecone with new API
-        self.pc = Pinecone(api_key=config.pinecone_api_key)
-        
         self.index_name = config.pinecone_index_name
-        self._ensure_index_exists()
-        self.index = self.pc.Index(self.index_name)
+        
+        if PINECONE_V3_PLUS:
+            # Initialize with new Pinecone v3+ API
+            self.pc = Pinecone(api_key=config.pinecone_api_key)
+            self._ensure_index_exists()
+            self.index = self.pc.Index(self.index_name)
+        else:
+            # Initialize with older Pinecone API
+            pinecone.init(
+                api_key=config.pinecone_api_key,
+                environment=config.pinecone_environment or "us-east-1-aws"
+            )
+            self._ensure_index_exists()
+            self.index = pinecone.Index(self.index_name)
     
     def _ensure_index_exists(self):
         """Create index if it doesn't exist"""
-        existing_indexes = self.pc.list_indexes().names()
-        
-        if self.index_name not in existing_indexes:
-            print(f"Creating Pinecone index: {self.index_name}")
-            self.pc.create_index(
-                name=self.index_name,
-                dimension=1536,  # text-embedding-3-small dimension
-                metric="cosine",
-                spec=ServerlessSpec(
-                    cloud='aws',
-                    region='us-east-1'
-                )
-            )
+        if PINECONE_V3_PLUS:
+            # New API
+            existing_indexes = self.pc.list_indexes().names()
             
-            # Wait for index to be ready
-            import time
-            while self.index_name not in self.pc.list_indexes().names():
-                time.sleep(1)
+            if self.index_name not in existing_indexes:
+                print(f"Creating Pinecone index: {self.index_name}")
+                self.pc.create_index(
+                    name=self.index_name,
+                    dimension=1536,  # text-embedding-3-small dimension
+                    metric="cosine",
+                    spec=ServerlessSpec(
+                        cloud='aws',
+                        region='us-east-1'
+                    )
+                )
+                
+                # Wait for index to be ready
+                import time
+                while self.index_name not in self.pc.list_indexes().names():
+                    time.sleep(1)
+        else:
+            # Older API
+            existing_indexes = pinecone.list_indexes()
+            
+            if self.index_name not in existing_indexes:
+                print(f"Creating Pinecone index: {self.index_name}")
+                pinecone.create_index(
+                    name=self.index_name,
+                    dimension=1536,  # text-embedding-3-small dimension
+                    metric="cosine"
+                )
+                
+                # Wait for index to be ready
+                import time
+                while self.index_name not in pinecone.list_indexes():
+                    time.sleep(1)
     
     async def upsert_embeddings(self, embeddings_data: List[Tuple[str, List[float], dict]], 
                                batch_size: int = 100) -> int:
@@ -71,11 +112,19 @@ class PineconeService:
         """Get statistics about the Pinecone index"""
         try:
             stats = self.index.describe_index_stats()
-            return {
-                'total_vector_count': stats.get('total_vector_count', 0),
-                'dimension': stats.get('dimension', 0),
-                'index_fullness': stats.get('index_fullness', 0.0)
-            }
+            if PINECONE_V3_PLUS:
+                return {
+                    'total_vector_count': stats.get('total_vector_count', 0),
+                    'dimension': stats.get('dimension', 0),
+                    'index_fullness': stats.get('index_fullness', 0.0)
+                }
+            else:
+                # Older API might have different structure
+                return {
+                    'total_vector_count': stats.get('total_vector_count', 0),
+                    'dimension': stats.get('dimension', 0),
+                    'index_fullness': stats.get('index_fullness', 0.0)
+                }
         except Exception as e:
             print(f"Error getting index stats: {e}")
             return {}
