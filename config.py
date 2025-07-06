@@ -1,9 +1,16 @@
 import os
 from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 @dataclass
 class Config:
+    # Security Configuration
+    api_key: str = os.getenv("API_KEY", "")
+    allowed_origins: List[str] = None  # Will be populated from ALLOWED_ORIGINS env var
+    enable_docs: bool = os.getenv("ENABLE_DOCS", "false").lower() == "true"
+    ssl_keyfile: Optional[str] = os.getenv("SSL_KEYFILE", None)
+    ssl_certfile: Optional[str] = os.getenv("SSL_CERTFILE", None)
+    
     # Slack Configuration
     slack_bot_token: str = os.getenv("SLACK_BOT_TOKEN", "")
     slack_channels: List[str] = None  # Will be populated from SLACK_CHANNELS env var
@@ -40,11 +47,20 @@ class Config:
         else:
             self.slack_channels = []
         
+        # Parse comma-separated allowed origins from environment
+        origins_str = os.getenv("ALLOWED_ORIGINS", "")
+        if origins_str:
+            self.allowed_origins = [origin.strip() for origin in origins_str.split(",")]
+        else:
+            # Default to localhost for development
+            self.allowed_origins = ["https://localhost:3000"]
+        
         # Validate required configurations
         self._validate_config()
     
     def _validate_config(self):
         required_vars = [
+            ("API_KEY", self.api_key),
             ("SLACK_BOT_TOKEN", self.slack_bot_token),
             ("OPENAI_API_KEY", self.openai_api_key),
             ("PINECONE_API_KEY", self.pinecone_api_key),
@@ -60,5 +76,15 @@ class Config:
         
         if not self.slack_channels:
             raise ValueError("No Slack channels specified. Set SLACK_CHANNELS environment variable.")
+        
+        # Validate API key length for security
+        if len(self.api_key) < 32:
+            raise ValueError("API_KEY must be at least 32 characters long for security")
+        
+        # Validate SSL configuration
+        if self.ssl_keyfile and not self.ssl_certfile:
+            raise ValueError("SSL_CERTFILE must be provided when SSL_KEYFILE is specified")
+        if self.ssl_certfile and not self.ssl_keyfile:
+            raise ValueError("SSL_KEYFILE must be provided when SSL_CERTFILE is specified")
 
 config = Config()
