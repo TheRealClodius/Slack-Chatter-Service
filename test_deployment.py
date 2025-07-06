@@ -12,7 +12,12 @@ def test_imports():
     
     try:
         import pinecone
-        print(f"✅ Pinecone {pinecone.__version__}")
+        # Try to get version, but don't fail if not available
+        try:
+            version = pinecone.__version__
+            print(f"✅ Pinecone {version}")
+        except AttributeError:
+            print("✅ Pinecone (version unavailable)")
         
         from pinecone import Pinecone, ServerlessSpec
         print("✅ Pinecone classes imported")

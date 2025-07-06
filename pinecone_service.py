@@ -2,7 +2,7 @@ import asyncio
 from typing import List, Tuple, Optional
 from datetime import datetime
 
-# Use only new Pinecone v3+ API
+# Import Pinecone v7.3.0+ API components
 from pinecone import Pinecone, ServerlessSpec
 
 from config import config
@@ -11,13 +11,13 @@ class PineconeService:
     def __init__(self):
         self.index_name = config.pinecone_index_name
         
-        # Initialize with new Pinecone v3+ API
+        # Initialize with Pinecone v7+ API
         self.pc = Pinecone(api_key=config.pinecone_api_key)
         self._ensure_index_exists()
         self.index = self.pc.Index(self.index_name)
     
     def _ensure_index_exists(self):
-        """Create index if it doesn't exist"""
+        """Create index if it doesn't exist (Pinecone v3+ API)"""
         existing_indexes = self.pc.list_indexes().names()
         
         if self.index_name not in existing_indexes:
@@ -36,6 +36,8 @@ class PineconeService:
             import time
             while self.index_name not in self.pc.list_indexes().names():
                 time.sleep(1)
+    
+
     
     async def upsert_embeddings(self, embeddings_data: List[Tuple[str, List[float], dict]], 
                                batch_size: int = 100) -> int:

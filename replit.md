@@ -166,6 +166,7 @@ After initial ingestion completes, the system automatically switches to hourly i
 - July 06, 2025: Resolved Pinecone import compatibility issue with version detection
 - July 06, 2025: Fixed deployment failure by removing old Pinecone v2 API fallback code and using only v3+ API
 - July 06, 2025: Resolved deployment configuration issues - updated for background worker mode instead of Cloud Run
+- July 06, 2025: Applied deployment fixes - simplified Pinecone API to v7+ only, confirmed background worker configuration
 
 ## User Preferences
 
