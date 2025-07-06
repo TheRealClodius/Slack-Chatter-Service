@@ -195,16 +195,26 @@ class SlackIngester:
         for channel_id in config.slack_channels:
             print(f"Ingesting messages from channel {channel_id}")
             
-            # Get channel messages
-            messages = await self.get_channel_messages(channel_id, oldest=oldest)
-            
-            # For each message that has replies, get the thread
-            for message in messages:
-                if message.is_thread_parent and message.reply_count > 0:
-                    thread_replies = await self.get_thread_replies(channel_id, message.id)
-                    message.thread_replies = thread_replies
-            
-            all_messages.extend(messages)
+            try:
+                # Get channel messages
+                messages = await self.get_channel_messages(channel_id, oldest=oldest)
+                
+                # For each message that has replies, get the thread
+                for message in messages:
+                    if message.is_thread_parent and message.reply_count > 0:
+                        try:
+                            thread_replies = await self.get_thread_replies(channel_id, message.id)
+                            message.thread_replies = thread_replies
+                        except Exception as e:
+                            print(f"Error getting thread replies for {message.id}: {e}")
+                
+                all_messages.extend(messages)
+                print(f"Successfully processed {len(messages)} messages from {channel_id}")
+                
+            except Exception as e:
+                print(f"Error processing channel {channel_id}: {e}")
+                print(f"Skipping channel {channel_id} and continuing...")
+                continue
             
             # Add a small delay between channels to be respectful
             await asyncio.sleep(1)

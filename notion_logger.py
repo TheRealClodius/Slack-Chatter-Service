@@ -34,7 +34,7 @@ class NotionLogger:
                     ]
                 },
                 "Run Status": {
-                    "select": {
+                    "status": {
                         "name": "Success" if log.success else "Failed"
                     }
                 },
@@ -73,14 +73,14 @@ class NotionLogger:
             response = self.client.databases.query(
                 database_id=self.database_id,
                 filter={
-                    "property": "Success",
-                    "checkbox": {
-                        "equals": True
+                    "property": "Run Status",
+                    "status": {
+                        "equals": "Success"
                     }
                 },
                 sorts=[
                     {
-                        "property": "Timestamp",
+                        "property": "Start Time",
                         "direction": "descending"
                     }
                 ],
@@ -88,7 +88,7 @@ class NotionLogger:
             )
             
             if response['results']:
-                timestamp_str = response['results'][0]['properties']['Timestamp']['date']['start']
+                timestamp_str = response['results'][0]['properties']['Start Time']['date']['start']
                 return datetime.fromisoformat(timestamp_str.replace('Z', '+00:00'))
             
         except Exception as e:
