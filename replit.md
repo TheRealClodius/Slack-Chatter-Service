@@ -150,6 +150,7 @@ After initial ingestion completes, the system automatically switches to hourly i
 - July 06, 2025: Fixed Pinecone API compatibility for new library version
 - July 06, 2025: Worker operational with rate limiting and proper API integration
 - July 06, 2025: Resolved Pinecone import compatibility issue with version detection
+- July 06, 2025: Fixed deployment failure by removing old Pinecone v2 API fallback code and using only v3+ API
 
 ## User Preferences
 
