@@ -110,6 +110,19 @@ The application is designed as a long-running background service:
 - Supports configurable rate limits and processing parameters
 - Includes validation and helpful error messages for missing config
 
+### Deployment Configuration
+- **Type**: Background Worker (NOT Cloud Run web server)
+- **Run Command**: `python main.py`
+- **Build Command**: Leave empty for background workers
+- **Dependencies**: Managed via pyproject.toml with proper Pinecone v7.3.0+
+- **Port**: Not applicable (no web server needed)
+
+### Deployment Requirements
+1. Use Reserved VM or Background Worker deployment type
+2. Set run command to `python main.py`
+3. Ensure all required environment variables are configured
+4. No build command needed for Python background workers
+
 ### Operational Modes
 - **Initial Ingestion**: Bulk processing of historical messages
 - **Incremental Updates**: Hourly processing of new messages only
@@ -128,6 +141,7 @@ The application is designed as a long-running background service:
 - Pinecone index created with 28 message embeddings stored
 - Notion logging database schema matched and verified
 - Hourly refresh system active and running
+- July 06, 2025: Deployment configuration updated for background worker mode
 
 ## Current Operations
 
@@ -151,6 +165,7 @@ After initial ingestion completes, the system automatically switches to hourly i
 - July 06, 2025: Worker operational with rate limiting and proper API integration
 - July 06, 2025: Resolved Pinecone import compatibility issue with version detection
 - July 06, 2025: Fixed deployment failure by removing old Pinecone v2 API fallback code and using only v3+ API
+- July 06, 2025: Resolved deployment configuration issues - updated for background worker mode instead of Cloud Run
 
 ## User Preferences
 
