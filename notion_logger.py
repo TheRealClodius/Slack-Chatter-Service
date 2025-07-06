@@ -13,9 +13,23 @@ class NotionLogger:
     async def log_ingestion(self, log: IngestionLog):
         """Log ingestion results to Notion database"""
         try:
-            # Prepare properties for Notion database
+            # Get database schema to understand existing properties
+            database = self.client.databases.retrieve(database_id=self.database_id)
+            existing_props = database['properties']
+            
+            # Find the title property (there should be exactly one)
+            title_prop = None
+            for prop_name, prop_data in existing_props.items():
+                if prop_data['type'] == 'title':
+                    title_prop = prop_name
+                    break
+            
+            if not title_prop:
+                raise Exception("No title property found in Notion database")
+            
+            # Build properties based on what exists in the database
             properties = {
-                "Name": {
+                title_prop: {
                     "title": [
                         {
                             "text": {
@@ -23,46 +37,42 @@ class NotionLogger:
                             }
                         }
                     ]
-                },
-                "Timestamp": {
-                    "date": {
-                        "start": log.timestamp.isoformat()
-                    }
-                },
-                "Operation": {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": log.operation
-                            }
-                        }
-                    ]
-                },
-                "Channels": {
-                    "number": log.channels_processed
-                },
-                "Messages": {
-                    "number": log.messages_processed
-                },
-                "Embeddings": {
-                    "number": log.embeddings_generated
-                },
-                "Duration": {
-                    "number": log.duration_seconds
-                },
-                "Success": {
-                    "checkbox": log.success
-                },
-                "Errors": {
-                    "rich_text": [
-                        {
-                            "text": {
-                                "content": "\n".join(log.errors) if log.errors else "None"
-                            }
-                        }
-                    ]
                 }
             }
+            
+            # Add other properties if they exist in the database
+            prop_mappings = {
+                'timestamp': log.timestamp.isoformat(),
+                'operation': log.operation,
+                'channels': log.channels_processed,
+                'messages': log.messages_processed,
+                'embeddings': log.embeddings_generated,
+                'duration': log.duration_seconds,
+                'success': log.success,
+                'errors': "\n".join(log.errors) if log.errors else "None"
+            }
+            
+            for prop_name, prop_data in existing_props.items():
+                prop_type = prop_data['type']
+                prop_name_lower = prop_name.lower()
+                
+                # Match property names (case insensitive, partial match)
+                if 'timestamp' in prop_name_lower and prop_type == 'date':
+                    properties[prop_name] = {"date": {"start": prop_mappings['timestamp']}}
+                elif 'operation' in prop_name_lower and prop_type in ['rich_text', 'text']:
+                    properties[prop_name] = {"rich_text": [{"text": {"content": prop_mappings['operation']}}]}
+                elif 'channel' in prop_name_lower and prop_type == 'number':
+                    properties[prop_name] = {"number": prop_mappings['channels']}
+                elif 'message' in prop_name_lower and prop_type == 'number':
+                    properties[prop_name] = {"number": prop_mappings['messages']}
+                elif 'embedding' in prop_name_lower and prop_type == 'number':
+                    properties[prop_name] = {"number": prop_mappings['embeddings']}
+                elif 'duration' in prop_name_lower and prop_type == 'number':
+                    properties[prop_name] = {"number": prop_mappings['duration']}
+                elif 'success' in prop_name_lower and prop_type == 'checkbox':
+                    properties[prop_name] = {"checkbox": prop_mappings['success']}
+                elif 'error' in prop_name_lower and prop_type in ['rich_text', 'text']:
+                    properties[prop_name] = {"rich_text": [{"text": {"content": prop_mappings['errors']}}]}
             
             # Create page in Notion database
             self.client.pages.create(
@@ -74,6 +84,7 @@ class NotionLogger:
             
         except Exception as e:
             print(f"Error logging to Notion: {e}")
+            print("Continuing without Notion logging...")
     
     async def get_last_successful_ingestion(self) -> datetime:
         """Get timestamp of last successful ingestion"""
