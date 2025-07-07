@@ -562,4 +562,245 @@ logging.getLogger('mcp.fastapi_app').setLevel(logging.DEBUG)
 - [ ] **Secure local development** environment
 - [ ] **Regular dependency updates** via `uv sync`
 
-The MCP deployment guide now covers both local stdio and remote OAuth 2.1 deployment options, providing flexibility for different use cases and team sizes. 
+The MCP deployment guide now covers both local stdio and remote OAuth 2.1 deployment options, providing flexibility for different use cases and team sizes.
+
+## 💻 Complete Client Integration Examples
+
+### Python Client Example (httpx + SSE)
+
+```python
+import asyncio
+import json
+import httpx
+from sse_starlette import EventSourceResponse
+
+class MCPRemoteClient:
+    def __init__(self, base_url: str, access_token: str):
+        self.base_url = base_url
+        self.access_token = access_token
+        self.headers = {"Authorization": f"Bearer {access_token}"}
+    
+    async def search_messages(self, query: str, top_k: int = 10):
+        """Search Slack messages"""
+        request_data = {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "search_slack_messages",
+                "arguments": {"query": query, "top_k": top_k}
+            },
+            "id": 1
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/mcp/request",
+                json=request_data,
+                headers=self.headers
+            )
+            return response.json()
+    
+    async def connect_sse(self):
+        """Connect to SSE endpoint"""
+        async with httpx.AsyncClient() as client:
+            async with client.stream(
+                "GET",
+                f"{self.base_url}/mcp/sse",
+                headers=self.headers
+            ) as response:
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = json.loads(line[6:])
+                        yield data
+
+# Usage
+async def main():
+    client = MCPRemoteClient("http://localhost:8080", "your_access_token")
+    
+    # Search messages
+    results = await client.search_messages("deployment issues")
+    print(json.dumps(results, indent=2))
+    
+    # Connect to SSE
+    async for event in client.connect_sse():
+        print(f"Received: {event}")
+
+if __name__ == "__main__":
+    asyncio.run(main())
+```
+
+### JavaScript Client Example (Complete OAuth 2.1 Flow)
+
+```javascript
+// PKCE helper functions
+function generateCodeVerifier() {
+    const array = new Uint8Array(32);
+    crypto.getRandomValues(array);
+    return base64URLEncode(array);
+}
+
+async function generateCodeChallenge(codeVerifier) {
+    const data = new TextEncoder().encode(codeVerifier);
+    const digest = await crypto.subtle.digest('SHA-256', data);
+    return base64URLEncode(new Uint8Array(digest));
+}
+
+function base64URLEncode(array) {
+    return btoa(String.fromCharCode(...array))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '');
+}
+
+// OAuth 2.1 flow
+async function getAccessToken() {
+    const clientId = 'mcp-slack-chatter-client';
+    const clientSecret = 'your_client_secret';
+    const redirectUri = 'http://localhost:3000/callback';
+    
+    // Generate PKCE
+    const codeVerifier = generateCodeVerifier();
+    const codeChallenge = await generateCodeChallenge(codeVerifier);
+    
+    // Start authorization
+    const authUrl = `http://localhost:8080/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=mcp:search+mcp:channels+mcp:stats&state=random_state&code_challenge=${codeChallenge}&code_challenge_method=S256`;
+    
+    // User visits authUrl and gets authorization code
+    const authCode = 'received_from_redirect';
+    
+    // Exchange code for token
+    const tokenResponse = await fetch('http://localhost:8080/oauth/token', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+            grant_type: 'authorization_code',
+            code: authCode,
+            redirect_uri: redirectUri,
+            client_id: clientId,
+            client_secret: clientSecret,
+            code_verifier: codeVerifier
+        })
+    });
+    
+    const tokenData = await tokenResponse.json();
+    return tokenData.access_token;
+}
+
+// MCP client
+class MCPRemoteClient {
+    constructor(baseUrl, accessToken) {
+        this.baseUrl = baseUrl;
+        this.accessToken = accessToken;
+    }
+    
+    async searchMessages(query, topK = 10) {
+        const response = await fetch(`${this.baseUrl}/mcp/request`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${this.accessToken}`,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {
+                    name: 'search_slack_messages',
+                    arguments: { query, top_k: topK }
+                },
+                id: 1
+            })
+        });
+        
+        return response.json();
+    }
+    
+    connectSSE() {
+        return new EventSource(`${this.baseUrl}/mcp/sse`, {
+            headers: {
+                'Authorization': `Bearer ${this.accessToken}`
+            }
+        });
+    }
+}
+
+// Usage
+async function main() {
+    const accessToken = await getAccessToken();
+    const client = new MCPRemoteClient('http://localhost:8080', accessToken);
+    
+    // Search messages
+    const results = await client.searchMessages('deployment issues');
+    console.log(results);
+    
+    // Connect to SSE
+    const eventSource = client.connectSSE();
+    eventSource.onmessage = (event) => {
+        console.log('Received:', JSON.parse(event.data));
+    };
+}
+```
+
+## 🔍 Advanced Troubleshooting
+
+### OAuth 2.1 Debug Commands
+
+```bash
+# Test OAuth discovery
+curl http://localhost:8080/.well-known/oauth-authorization-server
+
+# Test health endpoint
+curl http://localhost:8080/health
+
+# View OAuth clients (debug endpoint)
+curl http://localhost:8080/debug/oauth-clients
+
+# Test MCP request without auth (should fail)
+curl -X POST http://localhost:8080/mcp/request \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+
+# Test with invalid token (should fail)
+curl -X POST http://localhost:8080/mcp/request \
+  -H "Authorization: Bearer invalid_token" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
+
+### Common OAuth Issues
+
+1. **OAuth client not found**: Check the client ID and ensure server is running
+2. **Token expired**: Generate a new access token (24-hour expiration)
+3. **Invalid PKCE**: Ensure code_verifier and code_challenge are correctly generated
+4. **Search service not available**: Ensure ingestion has run and vector database is populated
+5. **CORS issues**: Update allowed origins for your client domain
+6. **Invalid redirect URI**: Ensure redirect URI matches registered URIs
+
+### Debug Mode
+
+```bash
+# Enable debug logging
+python main_orchestrator.py remote --log-level DEBUG
+
+# View server logs for OAuth client secret
+# Check startup logs for: "Generated OAuth client secret: ..."
+```
+
+## ⚡ Performance Optimization
+
+### SSE Connection Management
+
+- **Lightweight connections**: SSE uses less resources than WebSockets
+- **Automatic reconnection**: Implement reconnection logic in clients
+- **Connection pooling**: Reuse connections when possible
+- **Heartbeat mechanism**: Built-in keep-alive for SSE connections
+
+### Token Management
+
+- **Token caching**: Cache tokens locally to avoid repeated OAuth flows
+- **Token refresh**: Implement token refresh before expiration
+- **Session persistence**: Store session info for reconnection
+- **Rate limiting**: Respect OAuth endpoint rate limits
+
+The MCP deployment guide now provides comprehensive coverage of both local stdio and remote OAuth 2.1 deployment options, with complete working examples for production use. 
