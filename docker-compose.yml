@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  slack-ingestion-worker:
+    build: .
+    container_name: slack-chatter-ingestion
+    restart: unless-stopped
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - SLACK_CHANNELS=${SLACK_CHANNELS}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - PINECONE_INDEX_NAME=${PINECONE_INDEX_NAME:-slack-messages}
+      - NOTION_INTEGRATION_SECRET=${NOTION_INTEGRATION_SECRET}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M 

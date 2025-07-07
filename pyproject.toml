@@ -1,17 +1,56 @@
 [project]
-name = "repl-nix-workspace"
-version = "1.0.0"
-description = "Secure Slack Message Vector Search API"
-requires-python = ">=3.11"
-dependencies = [
-    "aiohttp>=3.9.0",
-    "apscheduler>=3.11.0",
-    "fastapi>=0.115.14",
-    "notion-client>=2.4.0",
-    "openai>=1.93.0",
-    "pydantic>=2.11.7",
-    "slack-sdk>=3.35.0",
-    "uvicorn>=0.35.0",
-    "slowapi>=0.1.9",
-    "python-multipart>=0.0.6",
+name = "slack-chatter-service"
+version = "2.0.0"
+description = "MCP tool for semantic search of Slack messages with intelligent query enhancement"
+authors = [
+    {name = "Slack Chatter Service", email = "support@example.com"}
 ]
+dependencies = [
+    # Core dependencies
+    "slack-sdk>=3.21.0",
+    "openai>=1.0.0",
+    
+    # MCP support (when available)
+    # "mcp>=0.1.0",  # Uncomment when MCP package is available
+    
+    # Data processing
+    "pydantic>=2.0.0",
+    "python-dateutil>=2.8.0",
+    "pyyaml>=6.0.0",
+    
+    # Async and scheduling
+    "apscheduler>=3.10.0",
+    "aiofiles>=23.0.0",
+    
+    # Logging and monitoring
+    "notion-client>=2.2.1",
+    
+    # Optional development dependencies
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+requires-python = ">=3.9"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+slack-chatter = "main_orchestrator:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 100
