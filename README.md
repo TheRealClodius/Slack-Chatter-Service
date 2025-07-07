@@ -4,7 +4,7 @@
 
 ## Overview
 
-Slack Chatter Service has been completely restructured with a clean, modular architecture that separates concerns between message ingestion and search functionality. The service now provides intelligent search capabilities through the Model Context Protocol (MCP) with an AI agent that enhances and formats queries for better results.
+Slack Chatter Service has been completely restructured with a clean, modular architecture that separates concerns between message ingestion and search functionality. The service now provides intelligent search capabilities through the Model Context Protocol (MCP) with both **local stdio** and **remote OAuth 2.1/SSE** access modes, plus an AI agent that enhances and formats queries for better results.
 
 ## 🏗️ New Architecture
 
@@ -12,9 +12,10 @@ Slack Chatter Service has been completely restructured with a clean, modular arc
 
 ```
 slack-chatter-service/
-├── mcp/                    # MCP Server & Agent
-│   ├── server.py          # MCP protocol implementation
-│   └── search_agent.py    # Intelligent query enhancement
+├── mcp/                    # MCP Server & Remote Protocol
+│   ├── server.py          # Pure MCP + Remote Protocol implementation
+│   ├── fastapi_app.py     # OAuth 2.1 + SSE FastAPI application
+│   └── llm_search_agent.py # Intelligent query enhancement
 ├── search/                 # Search Service
 │   └── service.py         # Dedicated search functionality
 ├── ingestion/             # Background Workers
@@ -38,7 +39,8 @@ slack-chatter-service/
 
 - **🔗 Decoupled Architecture**: Ingestion and search are completely separated
 - **🤖 Intelligent Agent**: AI-powered query enhancement and formatting
-- **📡 MCP Protocol**: Proper MCP implementation replacing REST API
+- **📡 Dual MCP Modes**: Local stdio + Remote OAuth 2.1/SSE protocol
+- **🔒 Secure Remote Access**: OAuth 2.1 authentication with scoped permissions
 - **🎯 Focused Components**: Each service has a single responsibility
 - **🔧 Flexible Deployment**: Run different modes independently
 
@@ -91,28 +93,40 @@ export SLACK_RATE_LIMIT_PER_MINUTE="50"
 
 The new architecture supports multiple modes:
 
-#### 1. MCP Server Mode (Recommended)
+#### 1. MCP Server Mode (Local - stdio)
 ```bash
-# Run as MCP tool
+# Run as local MCP tool via stdio
 python main_orchestrator.py mcp
 
 # Or using the installed script
 slack-chatter mcp
 ```
 
-#### 2. Ingestion Worker Mode
+#### 2. MCP Remote Protocol Mode (OAuth 2.1 + SSE)
+```bash
+# Run MCP Remote Protocol server with OAuth 2.1 and SSE
+python main_orchestrator.py remote
+
+# Server runs on http://localhost:8080 with:
+# - OAuth 2.1 authentication with PKCE
+# - Server-Sent Events (SSE) communication
+# - Scoped permissions (mcp:search, mcp:channels, mcp:stats)
+# - Session management with token expiration
+```
+
+#### 3. Ingestion Worker Mode
 ```bash
 # Run background ingestion only
 python main_orchestrator.py ingestion
 ```
 
-#### 3. Combined Mode
+#### 4. Combined Mode
 ```bash
 # Run both ingestion and MCP server
 python main_orchestrator.py combined
 ```
 
-#### 4. Test Mode
+#### 5. Test Mode
 ```bash
 # Test search functionality
 python main_orchestrator.py search
@@ -123,7 +137,58 @@ python main_orchestrator.py search
 python main_orchestrator.py mcp --validate-config
 ```
 
+## 🔒 MCP Remote Protocol
+
+### OAuth 2.1 Authentication
+
+The remote mode implements the official MCP Remote Protocol with:
+
+- **OAuth 2.1** with PKCE for secure authentication
+- **Scoped permissions**: `mcp:search`, `mcp:channels`, `mcp:stats`
+- **Session management** with 24-hour token expiration
+- **Server-Sent Events (SSE)** for real-time communication
+
+### Available Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/oauth-authorization-server` | GET | OAuth 2.1 discovery |
+| `/oauth/authorize` | GET | Authorization endpoint |
+| `/oauth/token` | POST | Token exchange |
+| `/mcp/sse` | GET | SSE communication |
+| `/mcp/request` | POST | Direct MCP requests |
+| `/mcp/session` | GET | Session information |
+| `/health` | GET | Health check |
+| `/docs` | GET | API documentation |
+
+### Quick OAuth Flow
+
+```bash
+# 1. Get OAuth discovery
+curl http://localhost:8080/.well-known/oauth-authorization-server
+
+# 2. Generate PKCE and visit authorization URL
+CODE_VERIFIER=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-43)
+CODE_CHALLENGE=$(echo -n $CODE_VERIFIER | openssl dgst -sha256 -binary | base64 | tr -d "=+/" | cut -c1-43)
+
+# 3. Visit authorization URL (get auth code)
+curl "http://localhost:8080/oauth/authorize?response_type=code&client_id=mcp-slack-chatter-client&redirect_uri=http://localhost:3000/callback&scope=mcp:search+mcp:channels+mcp:stats&state=random_state&code_challenge=$CODE_CHALLENGE&code_challenge_method=S256"
+
+# 4. Exchange code for token
+curl -X POST http://localhost:8080/oauth/token \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=authorization_code&code=YOUR_AUTH_CODE&redirect_uri=http://localhost:3000/callback&client_id=mcp-slack-chatter-client&client_secret=YOUR_CLIENT_SECRET&code_verifier=$CODE_VERIFIER"
+
+# 5. Use access token for MCP requests
+curl -X POST http://localhost:8080/mcp/request \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
+
 ## 🤖 MCP Client Configuration
+
+### Local MCP Server (stdio)
 
 Add this exact configuration to your custom MCP agent:
 
@@ -145,6 +210,24 @@ Add this exact configuration to your custom MCP agent:
     }
   }
 }
+```
+
+### Remote MCP Server (OAuth 2.1)
+
+For remote access, use the MCP Remote Protocol client libraries or implement OAuth 2.1 flow:
+
+```python
+# Python example
+from mcp_remote_client import MCPRemoteClient
+
+client = MCPRemoteClient(
+    base_url="http://localhost:8080",
+    client_id="mcp-slack-chatter-client",
+    client_secret="your_client_secret"  # Get from server logs
+)
+
+await client.authenticate()
+results = await client.search_messages("deployment issues")
 ```
 
 **⚠️ Remember:** Your Slack bot must be added to all channels in `SLACK_CHANNELS`!
@@ -246,11 +329,25 @@ Cost: ~$0.001 per query
 
 ### Using with MCP Clients
 
-The service implements the MCP protocol and provides these tools:
+The service implements both MCP protocols and provides these tools:
 
 - **`search_slack_messages`**: Semantic search with intelligent enhancement
 - **`get_slack_channels`**: List available channels
 - **`get_search_stats`**: Index statistics and health info
+
+### Protocol Options
+
+#### 1. Local MCP (stdio) - For development and direct integration
+- Simple subprocess execution
+- JSON-RPC 2.0 over stdin/stdout
+- No authentication required
+- Best for: Local development, MCP client integration
+
+#### 2. Remote MCP (OAuth 2.1 + SSE) - For production and web clients
+- OAuth 2.1 authentication with PKCE
+- Server-Sent Events for real-time communication
+- Scoped permissions and session management
+- Best for: Production deployments, web applications, shared access
 
 ### 📋 Client Templates
 

@@ -2,9 +2,21 @@
 
 ## Overview
 
-The Slack Chatter Service has two components:
+The Slack Chatter Service has multiple deployment modes:
 1. **Ingestion Worker** - Runs 24/7 to keep embeddings fresh (needs deployment)
-2. **MCP Tool** - Invoked on-demand by clients (no deployment needed)
+2. **MCP Tool (Local)** - Invoked on-demand by clients via stdio (no deployment needed)
+3. **MCP Remote Protocol** - OAuth 2.1 + SSE server for remote access (optional deployment)
+
+## Deployment Modes
+
+### Mode 1: Ingestion Worker Only
+Deploy only the background worker to keep embeddings fresh. Clients use local MCP stdio access.
+
+### Mode 2: Full Remote MCP Server
+Deploy both ingestion worker AND MCP Remote Protocol server for OAuth 2.1 authenticated remote access.
+
+### Mode 3: Combined Deployment
+Single deployment running both components together.
 
 ## Environment Variables
 
@@ -44,9 +56,24 @@ NOTION_DATABASE_ID=your-notion-database-id-here
    - Click the Secrets tab (🔒 icon) in Replit
    - Add all environment variables from your `.env` file
 
-3. **Deploy with one command:**
+3. **Deploy based on your needs:**
+
+   **Ingestion Worker Only:**
    ```bash
    python replit_deploy.py
+   # Or manually: python main_orchestrator.py ingestion
+   ```
+
+   **MCP Remote Protocol Server:**
+   ```bash
+   python main_orchestrator.py remote
+   # Server runs on port 8080 with OAuth 2.1 + SSE
+   ```
+
+   **Combined Mode:**
+   ```bash
+   python main_orchestrator.py combined
+   # Runs both ingestion and MCP stdio server
    ```
 
 4. **Enable Always On:**
@@ -63,6 +90,8 @@ NOTION_DATABASE_ID=your-notion-database-id-here
 
 ### Option 2: Railway (Recommended for Production)
 
+#### Ingestion Worker Deployment
+
 1. **Go to [Railway.app](https://railway.app)**
 2. **Sign in with GitHub**
 3. **Create New Project → Deploy from GitHub repo**
@@ -70,9 +99,19 @@ NOTION_DATABASE_ID=your-notion-database-id-here
 5. **Set start command:** `python main_orchestrator.py ingestion`
 6. **Deploy automatically!**
 
-**Cost**: ~$5-10/month
+#### MCP Remote Protocol Server Deployment
 
-### Option 3: Render (Background Worker)
+1. **Create second Railway service in same project**
+2. **Set start command:** `python main_orchestrator.py remote`
+3. **Configure port:** Set `PORT=8080`
+4. **Add same environment variables**
+5. **Generate domain** for OAuth redirect URIs
+
+**Cost**: ~$5-15/month (depending on usage)
+
+### Option 3: Render (Background Worker + Web Service)
+
+#### Background Worker (Ingestion)
 
 1. **Go to [Render.com](https://render.com)**
 2. **Create New → Background Worker**
@@ -81,36 +120,98 @@ NOTION_DATABASE_ID=your-notion-database-id-here
 5. **Add environment variables**
 6. **Deploy!**
 
-**Cost**: ~$7/month
+#### Web Service (MCP Remote Protocol)
+
+1. **Create New → Web Service**
+2. **Connect same GitHub repository**
+3. **Set start command:** `python main_orchestrator.py remote`
+4. **Set port:** `8080`
+5. **Add environment variables**
+6. **Deploy!**
+
+**Cost**: ~$14/month ($7 per service)
 
 ### Option 4: Docker Deployment (Recommended)
 
-1. **Build and run with Docker Compose:**
+#### Single Container (Combined Mode)
+```dockerfile
+# Dockerfile.combined
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install -e .
+
+# Set environment variables
+ENV SLACK_BOT_TOKEN=""
+ENV OPENAI_API_KEY=""
+ENV PINECONE_API_KEY=""
+ENV PINECONE_ENVIRONMENT=""
+ENV NOTION_INTEGRATION_SECRET=""
+ENV NOTION_DATABASE_ID=""
+ENV SLACK_CHANNELS=""
+
+EXPOSE 8080
+CMD ["python", "main_orchestrator.py", "combined"]
+```
+
+#### Multi-Container Setup
+
+**docker-compose.yml:**
+```yaml
+version: '3.8'
+
+services:
+  ingestion-worker:
+    build: .
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - NOTION_INTEGRATION_SECRET=${NOTION_INTEGRATION_SECRET}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
+      - SLACK_CHANNELS=${SLACK_CHANNELS}
+    command: ["python", "main_orchestrator.py", "ingestion"]
+    restart: unless-stopped
+
+  mcp-remote-server:
+    build: .
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - NOTION_INTEGRATION_SECRET=${NOTION_INTEGRATION_SECRET}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
+      - SLACK_CHANNELS=${SLACK_CHANNELS}
+    command: ["python", "main_orchestrator.py", "remote"]
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+```
+
+**Deploy Commands:**
 ```bash
 # Copy environment variables
 cp .env.example .env
 # Edit .env with your actual values
 
-# Build and start
+# Build and start all services
 docker-compose up -d
 
 # Check logs
-docker-compose logs -f slack-ingestion-worker
+docker-compose logs -f ingestion-worker
+docker-compose logs -f mcp-remote-server
 
-# Stop
+# Stop all services
 docker-compose down
 ```
 
-2. **Deploy to cloud platforms:**
-   - **Railway**: Connect repo, deploy automatically
-   - **Render**: Deploy as background worker
-   - **DigitalOcean App Platform**: Deploy as worker service
-   - **AWS ECS/Fargate**: Deploy container
-   - **Google Cloud Run**: Deploy as background service
-
 ### Option 5: Traditional VPS Deployment
 
-1. **Setup on any Linux server:**
+#### Single Server Setup
+
 ```bash
 # Install Python 3.11+
 sudo apt update
@@ -132,13 +233,23 @@ export SLACK_BOT_TOKEN="xoxb-..."
 export OPENAI_API_KEY="sk-..."
 # ... etc
 
-# Run ingestion worker
+# Choose deployment mode:
+
+# Option A: Ingestion worker only
 python main_orchestrator.py ingestion
+
+# Option B: MCP Remote Protocol server only  
+python main_orchestrator.py remote
+
+# Option C: Combined mode
+python main_orchestrator.py combined
 ```
 
-2. **Process management with systemd:**
+#### Process Management with systemd
+
+**Ingestion Worker Service:**
 ```ini
-# /etc/systemd/system/slack-chatter.service
+# /etc/systemd/system/slack-chatter-ingestion.service
 [Unit]
 Description=Slack Chatter Ingestion Worker
 After=network.target
@@ -162,102 +273,200 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
+**MCP Remote Protocol Server Service:**
+```ini
+# /etc/systemd/system/slack-chatter-remote.service
+[Unit]
+Description=Slack Chatter MCP Remote Protocol Server
+After=network.target
+
+[Service]
+Type=simple
+User=app
+WorkingDirectory=/opt/slack-chatter-service
+Environment=SLACK_BOT_TOKEN=xoxb-...
+Environment=OPENAI_API_KEY=sk-...
+Environment=PINECONE_API_KEY=...
+Environment=PINECONE_ENVIRONMENT=...
+Environment=NOTION_INTEGRATION_SECRET=...
+Environment=NOTION_DATABASE_ID=...
+Environment=SLACK_CHANNELS=C1234567890,C0987654321
+ExecStart=/usr/bin/python3 main_orchestrator.py remote
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Enable Services:**
+```bash
+sudo systemctl enable slack-chatter-ingestion
+sudo systemctl enable slack-chatter-remote
+sudo systemctl start slack-chatter-ingestion
+sudo systemctl start slack-chatter-remote
+```
+
 ### Option 6: Serverless/Cron-based (Alternative)
 
-If you prefer serverless, you could modify the ingestion to run as scheduled functions:
+For serverless ingestion (less reliable than 24/7 worker):
 
 - **AWS Lambda** + CloudWatch Events
 - **Google Cloud Functions** + Cloud Scheduler  
 - **Vercel Cron** + Vercel Functions
 - **GitHub Actions** (for development)
 
+**Note**: MCP Remote Protocol server needs persistent deployment.
+
 ### Option 7: Local Development
 
 For development and testing:
 ```bash
-# Run locally
+# Run ingestion worker locally
 python main_orchestrator.py ingestion
 
-# Or combined mode (ingestion + MCP server)
+# Run MCP Remote Protocol server locally
+python main_orchestrator.py remote
+
+# Run combined mode (ingestion + MCP stdio server)
 python main_orchestrator.py combined
+
+# Run only MCP stdio server (for local client testing)
+python main_orchestrator.py mcp
 ```
+
+## Deployment Mode Comparison
+
+| Mode | Use Case | Components | Port | Authentication |
+|------|----------|------------|------|----------------|
+| **Ingestion Only** | Background data processing | Worker only | None | N/A |
+| **MCP Remote** | Remote API access | Worker + Remote Server | 8080 | OAuth 2.1 |
+| **Combined** | All-in-one deployment | Worker + Stdio Server | None | N/A |
+| **Local MCP** | Development/testing | Stdio Server only | None | N/A |
 
 ## Platform Comparison
 
 | Platform | Cost/Month | Setup Time | Ease of Use | Best For |
 |----------|------------|------------|-------------|----------|
 | **Replit** | ~$5 | 5 mins | ⭐⭐⭐⭐⭐ | Beginners, learning |
-| **Railway** | ~$5-10 | 10 mins | ⭐⭐⭐⭐ | Production apps |
-| **Render** | ~$7 | 15 mins | ⭐⭐⭐ | Background workers |
+| **Railway** | ~$5-15 | 10 mins | ⭐⭐⭐⭐ | Production apps |
+| **Render** | ~$7-14 | 15 mins | ⭐⭐⭐ | Background workers |
 | **Docker** | Varies | 30 mins | ⭐⭐ | Maximum flexibility |
 | **VPS** | ~$5-20 | 1+ hour | ⭐ | Full control |
+
+## MCP Remote Protocol Configuration
+
+### OAuth 2.1 Setup
+
+The MCP Remote Protocol server automatically registers a default OAuth client:
+
+- **Client ID**: `mcp-slack-chatter-client`
+- **Client Secret**: Generated on startup (check server logs)
+- **Scopes**: `mcp:search`, `mcp:channels`, `mcp:stats`
+- **Redirect URIs**: `http://localhost:3000/callback`, `https://*.replit.app/callback`
+
+### Production OAuth Configuration
+
+For production deployments:
+
+1. **Configure proper redirect URIs** based on your deployment URL
+2. **Enable HTTPS** for OAuth 2.1 flows
+3. **Update CORS settings** in the FastAPI application
+4. **Implement rate limiting** for OAuth endpoints
+5. **Set up monitoring** for authentication failures
+
+### Client Integration
+
+**Local MCP (stdio):**
+```json
+{
+  "mcpServers": {
+    "slack-chatter": {
+      "command": "slack-chatter",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+**Remote MCP (OAuth 2.1):**
+```python
+from mcp_remote_client import MCPRemoteClient
+
+client = MCPRemoteClient(
+    base_url="https://your-deployment.replit.app",
+    client_id="mcp-slack-chatter-client",
+    client_secret="your_client_secret"
+)
+
+await client.authenticate()
+results = await client.search_messages("deployment issues")
+```
 
 ## Cloud Platform Specific Instructions
 
 ### Railway
 1. Connect GitHub repo
 2. Add environment variables in dashboard
-3. Deploy automatically
+3. Choose deployment command:
+   - Ingestion: `python main_orchestrator.py ingestion`
+   - Remote: `python main_orchestrator.py remote`
+   - Combined: `python main_orchestrator.py combined`
 
 ### Render
-1. Create new Background Worker
-2. Connect repo
-3. Set start command: `python main_orchestrator.py ingestion`
-4. Add environment variables
+1. Create Background Worker (for ingestion) + Web Service (for remote)
+2. Set appropriate start commands
+3. Configure port 8080 for remote server
 
 ### Replit
 1. Import from GitHub
-2. Add environment variables in Secrets tab
-3. Run: `python replit_deploy.py`
-4. Enable "Always On"
+2. Add environment variables in Secrets
+3. Choose deployment mode in run command
+4. Enable Always On for 24/7 operation
 
-### DigitalOcean App Platform
-1. Create new App
-2. Add Worker component
-3. Set run command: `python main_orchestrator.py ingestion`
-4. Configure environment variables
+## Monitoring and Troubleshooting
 
-### AWS ECS
-1. Create task definition with container
-2. Use image: `your-registry/slack-chatter-service:latest`
-3. Set environment variables
-4. Create service with desired count = 1
+### Health Checks
 
-## Monitoring & Logs
+**Ingestion Worker:**
+```bash
+# Check if worker is processing messages
+python scripts/verify_ingestion.py
+```
 
-The ingestion worker logs to:
-- **Console**: Real-time ingestion progress
-- **Notion**: Ingestion success/failure logs
-- **Docker logs**: `docker-compose logs -f`
+**MCP Remote Protocol Server:**
+```bash
+# Test OAuth discovery
+curl https://your-deployment.com/.well-known/oauth-authorization-server
 
-## Resource Requirements
+# Test health endpoint
+curl https://your-deployment.com/health
 
-- **CPU**: 0.5-1 CPU (mostly I/O bound)
-- **Memory**: 256-512MB (depends on message volume)
-- **Storage**: Minimal (only for logs and state)
-- **Network**: Outbound API calls to Slack, OpenAI, Pinecone, Notion
+# Test MCP endpoint (should fail without auth)
+curl -X POST https://your-deployment.com/mcp/request \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
 
-## Scaling
+### Common Issues
 
-- **Single instance**: Sufficient for most teams
-- **Multiple instances**: Not recommended (could cause duplicate processing)
-- **Horizontal scaling**: Scale via multiple independent deployments per team
+1. **Environment variables not set**: Check deployment platform configuration
+2. **OAuth client secret**: Check server startup logs for generated secret
+3. **Port configuration**: Ensure port 8080 is exposed for remote server
+4. **CORS issues**: Update allowed origins for production domains
+5. **Token expiration**: Implement token refresh in client applications
 
-## Cost Estimation
+## Security Considerations
 
-Monthly costs (estimated):
-- **Replit**: $5/month (Always On)
-- **VPS**: $5-20/month (DigitalOcean, Linode)
-- **Container hosting**: $7-25/month (Railway, Render)
-- **Serverless**: $0-5/month (AWS Lambda, functions)
-- **API costs**: 
-  - OpenAI: ~$0.50-5/month (embeddings)
-  - Pinecone: ~$70/month (1M vectors)
-  - Notion: Free
+### Production Checklist
 
-## Security
+- [ ] **HTTPS enabled** for OAuth 2.1 flows
+- [ ] **CORS configured** with specific origins (not `*`)
+- [ ] **Environment variables secured** (not in code)
+- [ ] **Rate limiting implemented** for OAuth endpoints
+- [ ] **Monitoring enabled** for failed authentication attempts
+- [ ] **Token expiration** properly handled in clients
+- [ ] **Redirect URIs validated** and restricted
+- [ ] **Firewall rules** configured for required ports only
 
-- Use environment variables for secrets
-- Don't commit credentials to git
-- Use least-privilege Slack bot permissions
-- Consider using secret management services 
+The deployment guide now covers both the traditional ingestion worker deployment and the new MCP Remote Protocol server deployment options. 

@@ -2,11 +2,13 @@
 
 ## 🚀 How to Deploy Slack Chatter Service as an MCP Tool
 
-Since this is a pure MCP (Model Context Protocol) tool, deployment is fundamentally different from REST APIs. MCP tools are executed as **subprocess tools** by MCP clients, not as web servers.
+The Slack Chatter Service supports two MCP deployment modes:
+1. **Local MCP (stdio)** - Traditional subprocess execution with JSON-RPC over stdin/stdout
+2. **MCP Remote Protocol** - OAuth 2.1 + SSE server for remote authenticated access
 
 ## 🎯 MCP Deployment Models
 
-### 1. **Local Package Installation** (Recommended)
+### 1. **Local MCP Package Installation** (Recommended for Development)
 
 The most common way to deploy MCP tools is as installable Python packages:
 
@@ -39,7 +41,46 @@ pip install -e .
 }
 ```
 
-### 2. **Direct Python Execution**
+### 2. **MCP Remote Protocol Server** (Recommended for Production)
+
+Deploy as a persistent server with OAuth 2.1 authentication and SSE communication:
+
+```bash
+# Start the MCP Remote Protocol server
+python main_orchestrator.py remote
+
+# Server runs on http://localhost:8080 with:
+# - OAuth 2.1 authentication with PKCE
+# - Server-Sent Events for real-time communication
+# - Scoped permissions: mcp:search, mcp:channels, mcp:stats
+# - Session management with token expiration
+```
+
+**Available Endpoints:**
+- `/.well-known/oauth-authorization-server` - OAuth 2.1 discovery
+- `/oauth/authorize` - Authorization endpoint
+- `/oauth/token` - Token exchange
+- `/mcp/sse` - Server-Sent Events communication
+- `/mcp/request` - Direct MCP JSON-RPC requests
+- `/mcp/session` - Session information
+- `/health` - Health check
+- `/docs` - API documentation
+
+**Client Integration:**
+```python
+from mcp_remote_client import MCPRemoteClient
+
+client = MCPRemoteClient(
+    base_url="https://your-deployment.com",
+    client_id="mcp-slack-chatter-client",
+    client_secret="your_client_secret"  # Get from server logs
+)
+
+await client.authenticate()
+results = await client.search_messages("deployment issues")
+```
+
+### 3. **Direct Python Execution** (Local Development)
 
 For development or custom installations:
 
@@ -59,12 +100,11 @@ For development or custom installations:
 }
 ```
 
-### 3. **Docker Container Deployment**
+### 4. **Docker Container Deployment** (Recommended for Production)
 
-For consistent environments across different systems:
-
+#### Local MCP Container
 ```dockerfile
-# Create Dockerfile
+# Dockerfile.mcp
 FROM python:3.11-slim
 
 WORKDIR /app
@@ -99,41 +139,103 @@ ENTRYPOINT ["slack-chatter", "mcp"]
 }
 ```
 
-### 4. **Cloud Deployment with MCP Transport**
+#### MCP Remote Protocol Container
+```dockerfile
+# Dockerfile.remote
+FROM python:3.11-slim
 
-Deploy to cloud platforms but still use MCP protocol:
+WORKDIR /app
+COPY . .
+RUN pip install -e .
 
-```json
-{
-  "mcpServers": {
-    "slack-chatter": {
-      "command": "ssh",
-      "args": ["user@your-server.com", "slack-chatter", "mcp"],
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token"
-      }
-    }
-  }
-}
+# Set environment variables
+ENV SLACK_BOT_TOKEN=""
+ENV OPENAI_API_KEY=""
+ENV PINECONE_API_KEY=""
+ENV PINECONE_ENVIRONMENT=""
+ENV NOTION_INTEGRATION_SECRET=""
+ENV NOTION_DATABASE_ID=""
+ENV SLACK_CHANNELS=""
+
+EXPOSE 8080
+CMD ["python", "main_orchestrator.py", "remote"]
 ```
 
-### 5. **Standalone Server Mode**
+### 5. **Cloud Deployment Options**
+
+#### Railway (Recommended)
+```bash
+# Deploy MCP Remote Protocol server
+railway deploy
+# Set start command: python main_orchestrator.py remote
+# Configure environment variables
+# Enable domain for OAuth redirects
+```
+
+#### Render
+```bash
+# Create Web Service
+# Set start command: python main_orchestrator.py remote
+# Configure port: 8080
+# Add environment variables
+```
+
+#### Replit
+```bash
+# Import from GitHub
+# Add environment variables in Secrets
+# Run: python main_orchestrator.py remote
+# Enable Always On
+```
+
+### 6. **Hybrid Deployment** (Background Worker + MCP Server)
+
+For complete functionality, deploy both ingestion worker and MCP server:
+
+```yaml
+# docker-compose.yml
+version: '3.8'
+
+services:
+  ingestion-worker:
+    build: .
+    command: ["python", "main_orchestrator.py", "ingestion"]
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # ... other env vars
+    restart: unless-stopped
+
+  mcp-remote-server:
+    build: .
+    command: ["python", "main_orchestrator.py", "remote"]
+    ports:
+      - "8080:8080"
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      # ... other env vars
+    restart: unless-stopped
+```
+
+### 7. **Standalone Server Mode**
 
 For shared team usage, run as a persistent background service:
 
 ```bash
-# Start ingestion worker
-slack-chatter combined  # Runs both ingestion and MCP server
+# Combined mode: runs both ingestion and MCP stdio server
+slack-chatter combined
 
-# Or separate processes
+# Or separate processes:
 slack-chatter ingestion &  # Background ingestion
-slack-chatter mcp          # MCP server
+slack-chatter remote       # MCP Remote Protocol server
 ```
 
 ## 🔧 MCP Client Examples
 
 ### Claude Desktop Configuration
 
+#### Local MCP (stdio)
 Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
@@ -156,10 +258,25 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
+#### Remote MCP (OAuth 2.1)
+For remote access, use the MCP Remote Protocol client:
+
+```python
+from mcp_remote_client import MCPRemoteClient
+
+client = MCPRemoteClient(
+    base_url="https://your-deployment.replit.app",
+    client_id="mcp-slack-chatter-client",
+    client_secret="your_client_secret"
+)
+
+await client.authenticate()
+results = await client.search_messages("deployment issues")
+```
+
 ### Custom Agent Configuration
 
-For custom MCP agents, add this exact configuration:
-
+#### Local MCP
 ```json
 {
   "mcpServers": {
@@ -180,6 +297,21 @@ For custom MCP agents, add this exact configuration:
 }
 ```
 
+#### Remote MCP (Production)
+```javascript
+// JavaScript/Node.js example
+const { MCPRemoteClient } = require('mcp-remote-client');
+
+const client = new MCPRemoteClient({
+  baseUrl: 'https://your-deployment.railway.app',
+  clientId: 'mcp-slack-chatter-client',
+  clientSecret: process.env.MCP_CLIENT_SECRET
+});
+
+await client.authenticate();
+const results = await client.searchMessages('deployment issues');
+```
+
 **Required Environment Variables:**
 - `SLACK_BOT_TOKEN` - Your Slack bot token (starts with `xoxb-`)
 - `OPENAI_API_KEY` - Your OpenAI API key (starts with `sk-`)
@@ -191,8 +323,7 @@ For custom MCP agents, add this exact configuration:
 
 ### Cline/Continue Configuration
 
-Add to your editor's MCP configuration:
-
+#### Local MCP
 ```json
 {
   "mcp": {
@@ -210,167 +341,225 @@ Add to your editor's MCP configuration:
 }
 ```
 
-## 📦 Distribution Methods
+#### Remote MCP (Advanced)
+```typescript
+// TypeScript example for custom integrations
+import { MCPRemoteClient } from 'mcp-remote-client';
 
-### 1. **PyPI Package** (Public)
+const client = new MCPRemoteClient({
+  baseUrl: 'https://your-deployment.render.com',
+  clientId: 'mcp-slack-chatter-client',
+  clientSecret: process.env.MCP_CLIENT_SECRET,
+  scopes: ['mcp:search', 'mcp:channels', 'mcp:stats']
+});
 
-```bash
-# Build and publish
-python -m build
-python -m twine upload dist/*
+// Initialize OAuth 2.1 flow
+await client.authenticate();
 
-# Users install with:
-pip install slack-chatter-service
+// Use MCP tools
+const channels = await client.getSlackChannels();
+const results = await client.searchSlackMessages('authentication errors');
+const stats = await client.getSearchStats();
 ```
 
-### 2. **GitHub Releases** (Private/Public)
+## 🔐 OAuth 2.1 Authentication Flow
 
-```bash
-# Users install directly from GitHub
-pip install git+https://github.com/yourusername/slack-chatter-service.git
+### Client Registration
 
-# Or specific version
-pip install git+https://github.com/yourusername/slack-chatter-service.git@v2.0.0
-```
-
-### 3. **Docker Hub** (Containerized)
-
-```bash
-# Build and push
-docker build -t yourusername/slack-chatter-service:latest .
-docker push yourusername/slack-chatter-service:latest
-
-# Users run with:
-docker pull yourusername/slack-chatter-service:latest
-```
-
-## 🏗️ Production Deployment Architecture
+The MCP Remote Protocol server automatically registers a default OAuth client on startup:
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   MCP Client    │    │   MCP Client    │    │   MCP Client    │
-│    (Claude)     │    │    (Cline)      │    │   (Custom)      │
-└─────────┬───────┘    └─────────┬───────┘    └─────────┬───────┘
-          │                      │                      │
-          │         JSON-RPC over stdin/stdout          │
-          │                      │                      │
-    ┌─────▼──────────────────────▼──────────────────────▼─────┐
-    │            Slack Chatter MCP Server                     │
-    │                                                         │
-    │  ┌─────────────────┐  ┌─────────────────┐              │
-    │  │ Search Service  │  │ Search Agent    │              │
-    │  └─────────────────┘  └─────────────────┘              │
-    └─────────────────┬───────────────────────────────────────┘
-                      │
-    ┌─────────────────▼───────────────────────────────────────┐
-    │            Background Services                          │
-    │                                                         │
-    │  ┌─────────────────┐  ┌─────────────────┐              │
-    │  │ Ingestion Worker│  │ Vector Storage  │              │
-    │  └─────────────────┘  └─────────────────┘              │
-    └─────────────────┬───────────────────────────────────────┘
-                      │
-    ┌─────────────────▼───────────────────────────────────────┐
-    │                External APIs                            │
-    │                                                         │
-    │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐       │
-    │  │   Slack     │ │   OpenAI    │ │   Notion    │       │
-    │  │ (Bot must be│ │             │ │             │       │
-    │  │ in channels)│ │             │ │             │       │
-    │  └─────────────┘ └─────────────┘ └─────────────┘       │
-    └─────────────────────────────────────────────────────────┘
+Client ID: mcp-slack-chatter-client
+Client Secret: <generated-on-startup>
+Scopes: mcp:search, mcp:channels, mcp:stats
+Redirect URIs: 
+  - http://localhost:3000/callback
+  - https://*.replit.app/callback
+  - https://*.railway.app/callback
+  - https://*.render.com/callback
 ```
 
-**⚠️ Prerequisites:**
-- **Slack bot must be added to all channels** you want to index
-- Bot needs appropriate permissions (`channels:history`, `channels:read`, `users:read`)
-- OpenAI API key with embedding access (used for both embeddings AND intelligent query enhancement)
-- Notion integration (optional) for logging
+### Authorization Flow
 
-**🤖 AI-Powered Search Enhancement:**
-- Uses LLM-powered search agent with deep vector search expertise
-- Automatically enhances user queries for better semantic search results
-- Powered by gpt-4o-mini using the same OpenAI key as embeddings
-- **YAML-Configured**: Prompts loaded from `agent_prompt.yaml` for easy customization
-- Cost: ~$0.001 per search query + embedding costs
-
-## 🔐 Security Considerations
-
-### Environment Variables
-- **Never hardcode secrets** in MCP configuration
-- Use environment variables or secret management
-- Consider using `.env` files for local development
-
-### Access Control
-- MCP tools run with **user permissions**
-- No network exposure by default
-- Consider containerization for isolation
-
-### Data Protection
-- Local vector storage is file-based
-- Consider encryption for sensitive data
-- Regular backups of state files
-
-## 🔧 Troubleshooting
-
-### Bot Not Reading Messages
-**Problem:** The ingestion worker shows 0 messages found or search returns no results.
-
-**Solution:** Ensure your Slack bot is properly configured:
-1. **Check bot permissions** in your Slack app settings
-2. **Verify bot is added to channels** - bot must be a member of each channel
-3. **Confirm channel IDs** are correct in `SLACK_CHANNELS` environment variable
-4. **Test bot access** by running: `slack-chatter ingestion --validate-config`
-
-### Common Permission Issues
-- `missing_scope` error → Add required OAuth scopes to your Slack app
-- `channel_not_found` → Check if channel ID is correct and bot has access
-- `not_in_channel` → Bot needs to be invited to the channel first
-
-### Getting Channel IDs
-1. Right-click on channel in Slack
-2. Select "View channel details"
-3. Scroll down and click "Copy channel ID"
-4. Use the ID (starts with 'C') in your `SLACK_CHANNELS` environment variable
-
-## 🚀 Getting Started
-
-1. **Install the package:**
-   ```bash
-   pip install -e .
+1. **Authorization URL**: `GET /oauth/authorize`
+   ```
+   https://your-deployment.com/oauth/authorize?
+     response_type=code&
+     client_id=mcp-slack-chatter-client&
+     redirect_uri=http://localhost:3000/callback&
+     scope=mcp:search+mcp:channels+mcp:stats&
+     state=random_state&
+     code_challenge=CODE_CHALLENGE&
+     code_challenge_method=S256
    ```
 
-2. **Set up your Slack bot:**
-   - Create a Slack app and get your bot token
-   - **⚠️ IMPORTANT:** Add your bot to the channels you want to index
-   - Your bot needs to be a member of each channel to read messages
-   - Get the channel IDs from Slack (right-click channel → View channel details → Copy channel ID)
-
-3. **Set environment variables:**
+2. **Token Exchange**: `POST /oauth/token`
    ```bash
-   export SLACK_BOT_TOKEN="xoxb-your-token"
-   export OPENAI_API_KEY="sk-your-key"
-   export SLACK_CHANNELS="C1234567890,C0987654321"  # Channel IDs where your bot is a member
+   curl -X POST https://your-deployment.com/oauth/token \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "grant_type=authorization_code" \
+     -d "code=AUTHORIZATION_CODE" \
+     -d "redirect_uri=http://localhost:3000/callback" \
+     -d "client_id=mcp-slack-chatter-client" \
+     -d "client_secret=YOUR_CLIENT_SECRET" \
+     -d "code_verifier=CODE_VERIFIER"
    ```
 
-4. **Test the MCP server:**
-   ```bash
-   slack-chatter mcp --validate-config
+3. **Access Token Response**:
+   ```json
+   {
+     "access_token": "mcp_access_token_...",
+     "token_type": "Bearer",
+     "expires_in": 86400,
+     "scope": "mcp:search mcp:channels mcp:stats"
+   }
    ```
 
-5. **Configure your MCP client** (Claude, Cline, etc.)
+### Using Access Tokens
 
-6. **Start using the search tools!**
+#### Direct MCP Requests
+```bash
+curl -X POST https://your-deployment.com/mcp/request \
+  -H "Authorization: Bearer mcp_access_token_..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "search_slack_messages",
+      "arguments": {
+        "query": "deployment issues",
+        "top_k": 10
+      }
+    },
+    "id": 1
+  }'
+```
 
-## 📝 Key Differences from REST APIs
+#### Server-Sent Events (SSE)
+```javascript
+const eventSource = new EventSource(
+  'https://your-deployment.com/mcp/sse?access_token=mcp_access_token_...'
+);
 
-| Aspect | REST API | MCP Tool |
-|--------|----------|----------|
-| **Transport** | HTTP/HTTPS | stdin/stdout JSON-RPC |
-| **Deployment** | Web server | Subprocess execution |
-| **Discovery** | API docs | Tool registration |
-| **Authentication** | API keys/tokens | Environment variables |
-| **Scaling** | Load balancers | Process management |
-| **Monitoring** | Web metrics | Process monitoring |
+eventSource.onmessage = function(event) {
+  const data = JSON.parse(event.data);
+  console.log('MCP Response:', data);
+};
 
-The MCP model is **much simpler** - no web servers, no ports, no network configuration. Just install, configure, and use! 🎉 
+// Send MCP request via SSE
+const request = {
+  jsonrpc: "2.0",
+  method: "tools/call",
+  params: {
+    name: "search_slack_messages",
+    arguments: { query: "authentication errors" }
+  },
+  id: 1
+};
+
+eventSource.addEventListener('open', function() {
+  // Send request (implementation depends on SSE library)
+  sendSSERequest(request);
+});
+```
+
+## 🎯 Deployment Mode Comparison
+
+| Feature | Local MCP (stdio) | MCP Remote Protocol |
+|---------|-------------------|---------------------|
+| **Authentication** | None | OAuth 2.1 + PKCE |
+| **Communication** | stdin/stdout | HTTP + SSE |
+| **Deployment** | Subprocess | Web server |
+| **Scalability** | Single process | Multi-client |
+| **Security** | Process isolation | Token-based |
+| **Best For** | Development, MCP clients | Production, web apps |
+| **Port** | None | 8080 |
+| **Setup Complexity** | Low | Medium |
+
+## 🚀 Production Deployment Recommendations
+
+### Small Teams (< 10 users)
+- **Local MCP**: Use stdio mode with shared package installation
+- **Remote MCP**: Deploy to Replit or Railway for simple web access
+
+### Medium Teams (10-100 users)
+- **Hybrid**: Deploy both ingestion worker and MCP Remote Protocol server
+- **Platforms**: Railway, Render, or Docker containers
+- **Authentication**: OAuth 2.1 with proper redirect URIs
+
+### Large Teams (100+ users)
+- **Dedicated Infrastructure**: VPS or cloud deployment
+- **Load Balancing**: Multiple MCP Remote Protocol server instances
+- **Authentication**: Integrate with corporate SSO (future feature)
+- **Monitoring**: Comprehensive logging and metrics
+
+## 🔍 Testing and Validation
+
+### Local MCP Testing
+```bash
+# Test local MCP server
+python main_orchestrator.py mcp --validate-config
+
+# Test with MCP client
+echo '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}' | python main_orchestrator.py mcp
+```
+
+### Remote MCP Testing
+```bash
+# Test OAuth discovery
+curl https://your-deployment.com/.well-known/oauth-authorization-server
+
+# Test health endpoint
+curl https://your-deployment.com/health
+
+# Test unauthorized access (should fail)
+curl -X POST https://your-deployment.com/mcp/request \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+
+# Test with proper OAuth flow
+# (Use client libraries for full OAuth implementation)
+```
+
+## 📊 Performance and Monitoring
+
+### Metrics to Monitor
+- **Token usage**: Track OAuth token generation and validation
+- **Request latency**: Monitor MCP request/response times
+- **Error rates**: Track authentication failures and MCP errors
+- **Resource usage**: Monitor CPU, memory, and network usage
+
+### Logging Configuration
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+# Enable debug logging for development
+logging.getLogger('mcp.server').setLevel(logging.DEBUG)
+logging.getLogger('mcp.fastapi_app').setLevel(logging.DEBUG)
+```
+
+## 🔒 Security Considerations
+
+### Production Security Checklist
+- [ ] **HTTPS only** for OAuth 2.1 flows
+- [ ] **Client secret rotation** on regular basis
+- [ ] **Token expiration** properly configured (24 hours)
+- [ ] **CORS restrictions** properly configured
+- [ ] **Rate limiting** implemented for OAuth endpoints
+- [ ] **Input validation** for all MCP parameters
+- [ ] **Audit logging** for authentication events
+- [ ] **Network security** (firewalls, VPN access)
+
+### Development Security
+- [ ] **Environment variables** for all secrets
+- [ ] **No hardcoded credentials** in source code
+- [ ] **Secure local development** environment
+- [ ] **Regular dependency updates** via `uv sync`
+
+The MCP deployment guide now covers both local stdio and remote OAuth 2.1 deployment options, providing flexibility for different use cases and team sizes. 

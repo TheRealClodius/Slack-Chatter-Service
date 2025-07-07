@@ -2,14 +2,15 @@
 
 ## Overview
 
-The Slack Chatter Service is an MCP (Model Context Protocol) tool that provides intelligent semantic search capabilities for Slack messages. The service consists of two main components: a background ingestion worker that continuously processes Slack messages and an MCP server that provides search functionality. The system uses OpenAI embeddings for semantic understanding and Pinecone for vector storage.
+The Slack Chatter Service is an MCP (Model Context Protocol) tool that provides intelligent semantic search capabilities for Slack messages. The service consists of multiple components: a background ingestion worker that continuously processes Slack messages, a local MCP server for stdio communication, and a remote MCP server with OAuth 2.1 authentication. The system uses OpenAI embeddings for semantic understanding and Pinecone for vector storage.
 
 ## System Architecture
 
 The application follows a clean, modular architecture with separation of concerns:
 
 ### Component Architecture
-- **MCP Server**: Implements the Model Context Protocol for search operations
+- **Local MCP Server**: Implements stdio MCP protocol for local client integration
+- **Remote MCP Server**: Implements OAuth 2.1 + SSE for remote authenticated access
 - **Background Worker**: Handles continuous ingestion of Slack messages
 - **Search Service**: Dedicated semantic search functionality
 - **Shared Libraries**: Core components used across all services
@@ -19,18 +20,30 @@ The application follows a clean, modular architecture with separation of concern
 - **AI/ML**: OpenAI GPT-4o-mini for query enhancement and text-embedding-3-small for embeddings
 - **Vector Database**: Pinecone for semantic search (with local JSON fallback for development)
 - **Communication**: Slack Web API for message ingestion
+- **Authentication**: OAuth 2.1 with PKCE for remote access
+- **Real-time Communication**: Server-Sent Events (SSE) for remote protocol
 - **Logging**: Notion integration for operational logs
-- **Protocol**: MCP (Model Context Protocol) for client communication
+- **Protocols**: MCP (stdio) and MCP Remote Protocol (OAuth 2.1 + SSE)
 
 ## Key Components
 
 ### Core Services
 
 #### MCP Server (`mcp/server.py`)
-- Implements pure JSON-RPC 2.0 protocol over stdio
-- Provides search capabilities via MCP protocol
+- **Dual Implementation**: Pure JSON-RPC 2.0 protocol over stdio + Remote Protocol server
+- **Local MCP**: Traditional subprocess execution for MCP clients
+- **Remote MCP**: OAuth 2.1 authentication with SSE communication
+- Provides search capabilities via both protocols
 - Handles client requests for message search, channel information, and statistics
 - Integrates with LLM search agent for intelligent query enhancement
+
+#### Remote MCP Application (`mcp/fastapi_app.py`)
+- **OAuth 2.1 Implementation**: Complete authorization server with PKCE
+- **Server-Sent Events**: Real-time bidirectional communication
+- **Scoped Permissions**: `mcp:search`, `mcp:channels`, `mcp:stats`
+- **Session Management**: Token generation, validation, and expiration
+- **FastAPI Integration**: RESTful endpoints with automatic OpenAPI documentation
+- **Security Features**: CORS, rate limiting, input validation
 
 #### LLM Search Agent (`mcp/llm_search_agent.py`)
 - AI-powered query enhancement using OpenAI GPT-4o-mini
@@ -98,19 +111,73 @@ The application follows a clean, modular architecture with separation of concern
 5. **Vector Storage**: Store embeddings in Pinecone with metadata
 6. **Logging**: Record ingestion metrics in Notion
 
-### Search Flow
-1. **Query Reception**: MCP server receives search request
-2. **Query Enhancement**: LLM agent enhances natural language query
-3. **Embedding Generation**: Convert query to embedding vector
-4. **Vector Search**: Perform similarity search in Pinecone
-5. **Result Processing**: Format and rank search results
-6. **Response**: Return structured results via MCP protocol
+### Local MCP Search Flow
+1. **Client Connection**: MCP client connects via subprocess (stdio)
+2. **Tool Discovery**: Client discovers available search tools
+3. **Query Reception**: MCP server receives search request
+4. **Query Enhancement**: LLM agent enhances natural language query
+5. **Embedding Generation**: Convert query to embedding vector
+6. **Vector Search**: Perform similarity search in Pinecone
+7. **Result Processing**: Format and rank search results
+8. **Response**: Return structured results via MCP protocol
+
+### Remote MCP Search Flow
+1. **OAuth Authentication**: Client performs OAuth 2.1 flow with PKCE
+2. **Token Validation**: Server validates access token and scopes
+3. **SSE Connection**: Client establishes Server-Sent Events connection
+4. **MCP Communication**: JSON-RPC 2.0 over SSE for real-time interaction
+5. **Search Processing**: Same as local MCP but with authentication
+6. **Response Delivery**: Results delivered via SSE or HTTP response
 
 ### Client Integration Flow
-1. **MCP Connection**: Client connects to MCP server via subprocess
-2. **Tool Discovery**: Client discovers available search tools
-3. **Search Request**: Client sends search query with parameters
-4. **Result Processing**: Client receives and formats search results
+1. **Protocol Selection**: Choose between local stdio or remote OAuth 2.1
+2. **Authentication**: Skip for local, OAuth 2.1 for remote
+3. **Connection Establishment**: Subprocess for local, HTTP/SSE for remote
+4. **Tool Discovery**: Client discovers available search tools
+5. **Search Request**: Client sends search query with parameters
+6. **Result Processing**: Client receives and formats search results
+
+## Deployment Modes
+
+### Local MCP Mode
+```bash
+# Traditional MCP tool execution
+python main_orchestrator.py mcp
+```
+- **Use Case**: Development, MCP client integration
+- **Communication**: stdin/stdout JSON-RPC
+- **Authentication**: None (process isolation)
+- **Deployment**: Subprocess execution
+
+### Remote MCP Mode
+```bash
+# OAuth 2.1 + SSE server
+python main_orchestrator.py remote
+```
+- **Use Case**: Production, web applications, remote access
+- **Communication**: HTTP + Server-Sent Events
+- **Authentication**: OAuth 2.1 with PKCE
+- **Deployment**: Web server on port 8080
+
+### Ingestion Worker Mode
+```bash
+# Background message processing
+python main_orchestrator.py ingestion
+```
+- **Use Case**: Continuous data processing
+- **Communication**: Slack API
+- **Authentication**: Slack bot token
+- **Deployment**: Background service
+
+### Combined Mode
+```bash
+# Ingestion + Local MCP
+python main_orchestrator.py combined
+```
+- **Use Case**: All-in-one deployment
+- **Communication**: Slack API + stdin/stdout
+- **Authentication**: Slack bot token
+- **Deployment**: Background service + MCP server
 
 ## External Dependencies
 
@@ -127,6 +194,9 @@ The application follows a clean, modular architecture with separation of concern
 - `notion-client`: Notion integration
 - `apscheduler`: Background job scheduling
 - `pyyaml`: Configuration management
+- `fastapi`: Web framework for remote MCP server
+- `authlib`: OAuth 2.1 implementation
+- `sse-starlette`: Server-Sent Events support
 
 ## Deployment Strategy
 
@@ -134,24 +204,34 @@ The application follows a clean, modular architecture with separation of concern
 - Local execution with JSON file storage
 - Environment variables via `.env` file
 - Direct Python execution for testing
+- Local MCP mode for client integration
 
 ### Production Deployment Options
 
 #### Replit Deployment (Recommended for beginners)
 - Import repository from GitHub
 - Configure environment variables in Secrets tab
-- One-command deployment with `python replit_deploy.py`
+- Choose deployment mode:
+  - **Ingestion Only**: `python main_orchestrator.py ingestion`
+  - **Remote MCP**: `python main_orchestrator.py remote`
+  - **Combined**: `python main_orchestrator.py combined`
 - Automatic dependency installation and service startup
 
-#### MCP Tool Deployment
+#### MCP Tool Deployment (Local)
 - Install as Python package: `pip install -e .`
 - Configure MCP client to execute as subprocess
 - Environment variables passed through MCP configuration
 - No web server required - pure MCP protocol
 
+#### MCP Remote Protocol Deployment (Production)
+- Deploy to cloud platforms (Railway, Render, etc.)
+- Configure OAuth 2.1 redirect URIs
+- Enable HTTPS for production OAuth flows
+- Set up monitoring and logging
+
 #### Traditional Server Deployment
 - Background worker deployment for continuous ingestion
-- MCP server for on-demand search queries
+- Remote MCP server for authenticated access
 - Separate deployment of ingestion and search components
 
 ### Configuration Requirements
@@ -160,9 +240,69 @@ The application follows a clean, modular architecture with separation of concern
 - Pinecone API key and index configuration
 - Notion integration secret and database ID for logging
 
+## MCP Remote Protocol Features
+
+### OAuth 2.1 Authentication
+- **PKCE (Proof Key for Code Exchange)**: Prevents authorization code interception
+- **Scoped Permissions**: Fine-grained access control
+- **Token Expiration**: 24-hour token lifetime
+- **Session Management**: Automatic cleanup and validation
+
+### Server-Sent Events (SSE)
+- **Real-time Communication**: Bidirectional JSON-RPC over SSE
+- **Persistent Connections**: Long-lived connections with heartbeat
+- **Error Handling**: Graceful degradation and reconnection
+- **Alternative to WebSockets**: Simpler implementation for MCP protocol
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/.well-known/oauth-authorization-server` | GET | OAuth 2.1 discovery |
+| `/oauth/authorize` | GET | Authorization endpoint |
+| `/oauth/token` | POST | Token exchange |
+| `/mcp/sse` | GET | SSE communication |
+| `/mcp/request` | POST | Direct MCP requests |
+| `/mcp/session` | GET | Session information |
+| `/health` | GET | Health check |
+| `/docs` | GET | API documentation |
+
+### Client Integration Examples
+
+#### Python Client
+```python
+from mcp_remote_client import MCPRemoteClient
+
+client = MCPRemoteClient(
+    base_url="https://your-replit-app.replit.app",
+    client_id="mcp-slack-chatter-client",
+    client_secret="your_client_secret"
+)
+
+await client.authenticate()
+results = await client.search_messages("deployment issues")
+```
+
+#### JavaScript Client
+```javascript
+const client = new MCPRemoteClient({
+  baseUrl: 'https://your-replit-app.replit.app',
+  clientId: 'mcp-slack-chatter-client',
+  clientSecret: process.env.MCP_CLIENT_SECRET
+});
+
+await client.authenticate();
+const results = await client.searchMessages('authentication errors');
+```
+
 ## Changelog
 ```
 Changelog:
+- July 07, 2025. Added MCP Remote Protocol with OAuth 2.1 and SSE
+- July 07, 2025. Dual MCP implementation (stdio + remote)
+- July 07, 2025. Enhanced security with authentication and scoped permissions
+- July 07, 2025. Real-time communication via Server-Sent Events
+- July 07, 2025. FastAPI integration for remote protocol
 - July 07, 2025. Initial setup
 ```
 
