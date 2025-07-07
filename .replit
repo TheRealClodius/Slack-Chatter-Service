@@ -3,3 +3,11 @@ modules = ["python-3.11"]
 [nix]
 channel = "stable-24_05"
 packages = ["libxcrypt", "libyaml"]
+
+[deployment]
+run = ["sh", "-c", "python3 replit_deploy.py"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 5000
+externalPort = 80
