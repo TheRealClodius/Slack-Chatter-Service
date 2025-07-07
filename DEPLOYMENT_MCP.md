@@ -6,6 +6,120 @@ The Slack Chatter Service supports two MCP deployment modes:
 1. **Local MCP (stdio)** - Traditional subprocess execution with JSON-RPC over stdin/stdout
 2. **MCP Remote Protocol** - OAuth 2.1 + SSE server for remote authenticated access
 
+## 🛠️ Available MCP Tools
+
+### 1. search_slack_messages
+
+**Description**: Semantic search through Slack messages with AI-powered query enhancement
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search query for finding relevant messages",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "top_k": {
+      "type": "integer",
+      "description": "Number of results to return (1-50)",
+      "minimum": 1,
+      "maximum": 50,
+      "default": 10
+    },
+    "channel_filter": {
+      "type": "string",
+      "description": "Filter results by channel name"
+    },
+    "user_filter": {
+      "type": "string",
+      "description": "Filter results by user name"
+    },
+    "date_from": {
+      "type": "string",
+      "description": "Filter messages from this date (YYYY-MM-DD)",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    },
+    "date_to": {
+      "type": "string",
+      "description": "Filter messages to this date (YYYY-MM-DD)",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+    }
+  },
+  "required": ["query"]
+}
+```
+
+**Example Usage**:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "search_slack_messages",
+    "arguments": {
+      "query": "deployment issues last week",
+      "top_k": 5,
+      "channel_filter": "engineering"
+    }
+  },
+  "id": 1
+}
+```
+
+### 2. get_slack_channels
+
+**Description**: Get list of available Slack channels
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Example Usage**:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "get_slack_channels",
+    "arguments": {}
+  },
+  "id": 2
+}
+```
+
+### 3. get_search_stats
+
+**Description**: Get statistics about indexed Slack messages
+
+**Input Schema**:
+```json
+{
+  "type": "object",
+  "properties": {}
+}
+```
+
+**Example Usage**:
+```json
+{
+  "jsonrpc": "2.0",
+  "method": "tools/call",
+  "params": {
+    "name": "get_search_stats",
+    "arguments": {}
+  },
+  "id": 3
+}
+```
+
 ## 🎯 MCP Deployment Models
 
 ### 1. **Local MCP Package Installation** (Recommended for Development)
@@ -562,245 +676,464 @@ logging.getLogger('mcp.fastapi_app').setLevel(logging.DEBUG)
 - [ ] **Secure local development** environment
 - [ ] **Regular dependency updates** via `uv sync`
 
-The MCP deployment guide now covers both local stdio and remote OAuth 2.1 deployment options, providing flexibility for different use cases and team sizes.
+The MCP deployment guide now provides comprehensive coverage of both local stdio and remote OAuth 2.1 deployment options, with complete working examples for production use.
 
-## 💻 Complete Client Integration Examples
+## 🔧 Enhanced Authentication Flow
 
-### Python Client Example (httpx + SSE)
+### PKCE Implementation Details
+
+PKCE (Proof Key for Code Exchange) prevents authorization code interception attacks:
+
+```python
+import secrets
+import base64
+import hashlib
+
+def generate_pkce_pair():
+    """Generate PKCE verifier and challenge"""
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    ).decode('utf-8').rstrip('=')
+    return code_verifier, code_challenge
+```
+
+### Complete Authentication Flow
 
 ```python
 import asyncio
 import json
 import httpx
-from sse_starlette import EventSourceResponse
+import secrets
+import base64
+import hashlib
+from urllib.parse import urlencode
 
-class MCPRemoteClient:
-    def __init__(self, base_url: str, access_token: str):
+class MCPAuthenticatedClient:
+    def __init__(self, base_url: str, client_id: str, client_secret: str):
         self.base_url = base_url
-        self.access_token = access_token
-        self.headers = {"Authorization": f"Bearer {access_token}"}
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.access_token = None
+        self.token_expires_at = None
     
-    async def search_messages(self, query: str, top_k: int = 10):
-        """Search Slack messages"""
+    def generate_pkce_pair(self):
+        """Generate PKCE verifier and challenge"""
+        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+        code_challenge = base64.urlsafe_b64encode(
+            hashlib.sha256(code_verifier.encode('utf-8')).digest()
+        ).decode('utf-8').rstrip('=')
+        return code_verifier, code_challenge
+    
+    async def authenticate(self, redirect_uri: str = "http://localhost:3000/callback"):
+        """Perform complete OAuth 2.1 authentication"""
+        code_verifier, code_challenge = self.generate_pkce_pair()
+        
+        # Start authorization
+        auth_params = {
+            "response_type": "code",
+            "client_id": self.client_id,
+            "redirect_uri": redirect_uri,
+            "scope": "mcp:search mcp:channels mcp:stats",
+            "state": secrets.token_urlsafe(32),
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256"
+        }
+        
+        auth_url = f"{self.base_url}/oauth/authorize?" + urlencode(auth_params)
+        print(f"Visit: {auth_url}")
+        
+        # Get authorization code (in practice, this comes from redirect)
+        auth_code = input("Enter authorization code: ")
+        
+        # Exchange code for token
+        async with httpx.AsyncClient() as client:
+            token_data = {
+                "grant_type": "authorization_code",
+                "code": auth_code,
+                "redirect_uri": redirect_uri,
+                "client_id": self.client_id,
+                "client_secret": self.client_secret,
+                "code_verifier": code_verifier
+            }
+            
+            response = await client.post(f"{self.base_url}/oauth/token", data=token_data)
+            
+            if response.status_code != 200:
+                raise Exception(f"Token exchange failed: {response.text}")
+            
+            token_result = response.json()
+            self.access_token = token_result["access_token"]
+            
+            # Calculate expiration time
+            import time
+            self.token_expires_at = time.time() + token_result.get("expires_in", 3600)
+            
+            return token_result
+    
+    def is_token_valid(self):
+        """Check if current token is still valid"""
+        if not self.access_token:
+            return False
+        
+        import time
+        return time.time() < (self.token_expires_at or 0)
+    
+    async def make_mcp_request(self, method: str, params: dict = None):
+        """Make authenticated MCP request with automatic token validation"""
+        if not self.is_token_valid():
+            raise Exception("Token expired or invalid. Re-authenticate required.")
+        
         request_data = {
             "jsonrpc": "2.0",
-            "method": "tools/call",
-            "params": {
-                "name": "search_slack_messages",
-                "arguments": {"query": query, "top_k": top_k}
-            },
-            "id": 1
+            "method": method,
+            "params": params or {},
+            "id": secrets.randbelow(10000)
         }
         
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 f"{self.base_url}/mcp/request",
                 json=request_data,
-                headers=self.headers
+                headers={"Authorization": f"Bearer {self.access_token}"}
             )
-            return response.json()
+            
+            result = response.json()
+            
+            # Check for errors
+            if "error" in result:
+                raise MCPError(result["error"])
+            
+            return result
     
-    async def connect_sse(self):
-        """Connect to SSE endpoint"""
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "GET",
-                f"{self.base_url}/mcp/sse",
-                headers=self.headers
-            ) as response:
-                async for line in response.aiter_lines():
-                    if line.startswith("data: "):
-                        data = json.loads(line[6:])
-                        yield data
-
-# Usage
-async def main():
-    client = MCPRemoteClient("http://localhost:8080", "your_access_token")
-    
-    # Search messages
-    results = await client.search_messages("deployment issues")
-    print(json.dumps(results, indent=2))
-    
-    # Connect to SSE
-    async for event in client.connect_sse():
-        print(f"Received: {event}")
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-### JavaScript Client Example (Complete OAuth 2.1 Flow)
-
-```javascript
-// PKCE helper functions
-function generateCodeVerifier() {
-    const array = new Uint8Array(32);
-    crypto.getRandomValues(array);
-    return base64URLEncode(array);
-}
-
-async function generateCodeChallenge(codeVerifier) {
-    const data = new TextEncoder().encode(codeVerifier);
-    const digest = await crypto.subtle.digest('SHA-256', data);
-    return base64URLEncode(new Uint8Array(digest));
-}
-
-function base64URLEncode(array) {
-    return btoa(String.fromCharCode(...array))
-        .replace(/\+/g, '-')
-        .replace(/\//g, '_')
-        .replace(/=/g, '');
-}
-
-// OAuth 2.1 flow
-async function getAccessToken() {
-    const clientId = 'mcp-slack-chatter-client';
-    const clientSecret = 'your_client_secret';
-    const redirectUri = 'http://localhost:3000/callback';
-    
-    // Generate PKCE
-    const codeVerifier = generateCodeVerifier();
-    const codeChallenge = await generateCodeChallenge(codeVerifier);
-    
-    // Start authorization
-    const authUrl = `http://localhost:8080/oauth/authorize?response_type=code&client_id=${clientId}&redirect_uri=${redirectUri}&scope=mcp:search+mcp:channels+mcp:stats&state=random_state&code_challenge=${codeChallenge}&code_challenge_method=S256`;
-    
-    // User visits authUrl and gets authorization code
-    const authCode = 'received_from_redirect';
-    
-    // Exchange code for token
-    const tokenResponse = await fetch('http://localhost:8080/oauth/token', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: new URLSearchParams({
-            grant_type: 'authorization_code',
-            code: authCode,
-            redirect_uri: redirectUri,
-            client_id: clientId,
-            client_secret: clientSecret,
-            code_verifier: codeVerifier
-        })
-    });
-    
-    const tokenData = await tokenResponse.json();
-    return tokenData.access_token;
-}
-
-// MCP client
-class MCPRemoteClient {
-    constructor(baseUrl, accessToken) {
-        this.baseUrl = baseUrl;
-        this.accessToken = accessToken;
-    }
-    
-    async searchMessages(query, topK = 10) {
-        const response = await fetch(`${this.baseUrl}/mcp/request`, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${this.accessToken}`,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                jsonrpc: '2.0',
-                method: 'tools/call',
-                params: {
-                    name: 'search_slack_messages',
-                    arguments: { query, top_k: topK }
-                },
-                id: 1
-            })
-        });
-        
-        return response.json();
-    }
-    
-    connectSSE() {
-        return new EventSource(`${this.baseUrl}/mcp/sse`, {
-            headers: {
-                'Authorization': `Bearer ${this.accessToken}`
+    async def search_messages(self, query: str, **kwargs):
+        """Search Slack messages with error handling"""
+        return await self.make_mcp_request(
+            "tools/call",
+            {
+                "name": "search_slack_messages",
+                "arguments": {"query": query, **kwargs}
             }
-        });
+        )
+    
+    async def get_channels(self):
+        """Get available channels"""
+        return await self.make_mcp_request(
+            "tools/call",
+            {
+                "name": "get_slack_channels",
+                "arguments": {}
+            }
+        )
+    
+    async def get_stats(self):
+        """Get search statistics"""
+        return await self.make_mcp_request(
+            "tools/call",
+            {
+                "name": "get_search_stats",
+                "arguments": {}
+            }
+        )
+
+class MCPError(Exception):
+    """Custom exception for MCP errors"""
+    def __init__(self, error_data):
+        self.code = error_data.get("code")
+        self.message = error_data.get("message")
+        self.data = error_data.get("data")
+        super().__init__(f"MCP Error {self.code}: {self.message}")
+
+## 🚨 Error Handling
+
+### Common Error Codes
+
+| Code | Description | Solution |
+|------|-------------|----------|
+| -32001 | Authentication failed | Check token validity, re-authenticate |
+| -32002 | Insufficient scope | Request proper scopes during auth |
+| -32003 | Invalid request | Check JSON-RPC format and parameters |
+| -32004 | Service unavailable | Ensure ingestion has run, check service health |
+| -32005 | Rate limit exceeded | Implement backoff strategy |
+
+### Error Response Format
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32001,
+    "message": "Authentication failed",
+    "data": {
+      "details": "Token expired",
+      "expires_at": "2024-01-01T12:00:00Z"
     }
-}
-
-// Usage
-async function main() {
-    const accessToken = await getAccessToken();
-    const client = new MCPRemoteClient('http://localhost:8080', accessToken);
-    
-    // Search messages
-    const results = await client.searchMessages('deployment issues');
-    console.log(results);
-    
-    // Connect to SSE
-    const eventSource = client.connectSSE();
-    eventSource.onmessage = (event) => {
-        console.log('Received:', JSON.parse(event.data));
-    };
+  }
 }
 ```
 
-## 🔍 Advanced Troubleshooting
+### Error Handling Example
 
-### OAuth 2.1 Debug Commands
+```python
+import asyncio
+import time
 
-```bash
-# Test OAuth discovery
-curl http://localhost:8080/.well-known/oauth-authorization-server
-
-# Test health endpoint
-curl http://localhost:8080/health
-
-# View OAuth clients (debug endpoint)
-curl http://localhost:8080/debug/oauth-clients
-
-# Test MCP request without auth (should fail)
-curl -X POST http://localhost:8080/mcp/request \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
-
-# Test with invalid token (should fail)
-curl -X POST http://localhost:8080/mcp/request \
-  -H "Authorization: Bearer invalid_token" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+async def robust_search(client, query, max_retries=3):
+    """Search with robust error handling and retries"""
+    for attempt in range(max_retries):
+        try:
+            return await client.search_messages(query)
+            
+        except MCPError as e:
+            if e.code == -32001:  # Authentication failed
+                print("Token expired, re-authenticating...")
+                await client.authenticate()
+                continue
+                
+            elif e.code == -32005:  # Rate limited
+                wait_time = 2 ** attempt  # Exponential backoff
+                print(f"Rate limited, waiting {wait_time}s...")
+                await asyncio.sleep(wait_time)
+                continue
+                
+            else:
+                print(f"Unhandled error: {e}")
+                raise
+                
+        except Exception as e:
+            print(f"Network error on attempt {attempt + 1}: {e}")
+            if attempt == max_retries - 1:
+                raise
+            await asyncio.sleep(1)
+    
+    raise Exception(f"Failed after {max_retries} attempts")
 ```
 
-### Common OAuth Issues
+## 🧪 Testing Framework
 
-1. **OAuth client not found**: Check the client ID and ensure server is running
-2. **Token expired**: Generate a new access token (24-hour expiration)
-3. **Invalid PKCE**: Ensure code_verifier and code_challenge are correctly generated
-4. **Search service not available**: Ensure ingestion has run and vector database is populated
-5. **CORS issues**: Update allowed origins for your client domain
-6. **Invalid redirect URI**: Ensure redirect URI matches registered URIs
+### Unit Tests
 
-### Debug Mode
+```python
+import pytest
+import asyncio
+from unittest.mock import Mock, patch
 
-```bash
-# Enable debug logging
-python main_orchestrator.py remote --log-level DEBUG
-
-# View server logs for OAuth client secret
-# Check startup logs for: "Generated OAuth client secret: ..."
+class TestMCPClient:
+    @pytest.fixture
+    async def client(self):
+        return MCPAuthenticatedClient(
+            base_url="http://localhost:8080",
+            client_id="test-client",
+            client_secret="test-secret"
+        )
+    
+    @pytest.mark.asyncio
+    async def test_pkce_generation(self, client):
+        """Test PKCE generation"""
+        verifier, challenge = client.generate_pkce_pair()
+        
+        assert len(verifier) >= 43
+        assert len(challenge) >= 43
+        assert verifier != challenge
+    
+    @pytest.mark.asyncio
+    async def test_search_messages(self, client):
+        """Test message search"""
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"messages": []}
+            }
+            mock_client.return_value.__aenter__.return_value.post.return_value = mock_response
+            
+            # Set valid token
+            client.access_token = "test-token"
+            client.token_expires_at = time.time() + 3600
+            
+            result = await client.search_messages("test query")
+            assert "result" in result
+    
+    @pytest.mark.asyncio
+    async def test_error_handling(self, client):
+        """Test error handling"""
+        with patch('httpx.AsyncClient') as mock_client:
+            mock_response = Mock()
+            mock_response.json.return_value = {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32001,
+                    "message": "Authentication failed"
+                }
+            }
+            mock_client.return_value.__aenter__.return_value.post.return_value = mock_response
+            
+            client.access_token = "invalid-token"
+            client.token_expires_at = time.time() + 3600
+            
+            with pytest.raises(MCPError) as exc_info:
+                await client.search_messages("test")
+            
+            assert exc_info.value.code == -32001
 ```
 
-## ⚡ Performance Optimization
+### Integration Tests
 
-### SSE Connection Management
+```python
+@pytest.mark.integration
+async def test_full_oauth_flow():
+    """Test complete OAuth 2.1 flow"""
+    client = MCPAuthenticatedClient(
+        base_url="http://localhost:8080",
+        client_id="mcp-slack-chatter-client",
+        client_secret=os.getenv("CLIENT_SECRET")
+    )
+    
+    # This would require manual intervention in real tests
+    # In CI/CD, you'd mock the authorization step
+    if not os.getenv("CI"):
+        await client.authenticate()
+        
+        # Test all endpoints
+        channels = await client.get_channels()
+        assert "result" in channels
+        
+        stats = await client.get_stats()
+        assert "result" in stats
+        
+        results = await client.search_messages("test", top_k=1)
+        assert "result" in results
+```
 
-- **Lightweight connections**: SSE uses less resources than WebSockets
-- **Automatic reconnection**: Implement reconnection logic in clients
-- **Connection pooling**: Reuse connections when possible
-- **Heartbeat mechanism**: Built-in keep-alive for SSE connections
+## 📋 Best Practices
 
-### Token Management
+### Security Best Practices
 
-- **Token caching**: Cache tokens locally to avoid repeated OAuth flows
-- **Token refresh**: Implement token refresh before expiration
-- **Session persistence**: Store session info for reconnection
-- **Rate limiting**: Respect OAuth endpoint rate limits
+1. **Token Storage**: Store tokens securely, never in plain text
+   ```python
+   import keyring
+   
+   # Store token securely
+   keyring.set_password("mcp-slack-chatter", "access_token", token)
+   
+   # Retrieve token
+   token = keyring.get_password("mcp-slack-chatter", "access_token")
+   ```
 
-The MCP deployment guide now provides comprehensive coverage of both local stdio and remote OAuth 2.1 deployment options, with complete working examples for production use. 
+2. **Token Rotation**: Implement automatic token refresh
+   ```python
+   async def ensure_valid_token(self):
+       if not self.is_token_valid():
+           await self.authenticate()
+   ```
+
+3. **Scope Limitation**: Request only required scopes
+   ```python
+   # Good: Specific scopes
+   scope = "mcp:search"
+   
+   # Bad: All scopes
+   scope = "mcp:search mcp:channels mcp:stats"
+   ```
+
+### Performance Best Practices
+
+1. **Connection Pooling**: Reuse HTTP connections
+   ```python
+   # Use session for multiple requests
+   async with httpx.AsyncClient() as session:
+       for query in queries:
+           await make_request(session, query)
+   ```
+
+2. **Request Batching**: Batch multiple searches when possible
+   ```python
+   async def batch_search(queries):
+       tasks = [client.search_messages(q) for q in queries]
+       return await asyncio.gather(*tasks)
+   ```
+
+3. **Caching**: Cache frequent requests
+   ```python
+   from functools import lru_cache
+   
+   @lru_cache(maxsize=100)
+   async def cached_search(query):
+       return await client.search_messages(query)
+   ```
+
+### Integration Best Practices
+
+1. **Graceful Degradation**: Handle service unavailability
+   ```python
+   try:
+       results = await client.search_messages(query)
+   except MCPError:
+       # Fallback to alternative search
+       results = await fallback_search(query)
+   ```
+
+2. **Rate Limiting**: Respect API limits
+   ```python
+   import asyncio
+   from asyncio import Semaphore
+   
+   # Limit concurrent requests
+   semaphore = Semaphore(5)
+   
+   async def rate_limited_search(query):
+       async with semaphore:
+           return await client.search_messages(query)
+   ```
+
+3. **Monitoring**: Log requests and responses
+   ```python
+   import logging
+   
+   logger = logging.getLogger(__name__)
+   
+   async def logged_search(query):
+       logger.info(f"Searching for: {query}")
+       try:
+           result = await client.search_messages(query)
+           logger.info(f"Found {len(result.get('result', {}).get('messages', []))} messages")
+           return result
+       except Exception as e:
+           logger.error(f"Search failed: {e}")
+           raise
+   ```
+
+## 🔍 Production Deployment Checklist
+
+### Environment Setup
+- [ ] All environment variables configured
+- [ ] OAuth client registered with proper redirect URIs
+- [ ] HTTPS enabled for production
+- [ ] CORS configured for client domains
+- [ ] Rate limiting implemented
+
+### Security Configuration
+- [ ] Client secrets stored securely
+- [ ] Token expiration properly configured
+- [ ] Scopes limited to minimum required
+- [ ] Input validation implemented
+- [ ] Audit logging enabled
+
+### Monitoring & Observability
+- [ ] Health checks implemented
+- [ ] Metrics collection enabled
+- [ ] Error tracking configured
+- [ ] Performance monitoring set up
+- [ ] Log aggregation configured
+
+### Testing & Validation
+- [ ] Unit tests passing
+- [ ] Integration tests passing
+- [ ] Load testing completed
+- [ ] Security testing performed
+- [ ] Documentation validated
+
+The MCP deployment guide now provides comprehensive coverage of deployment, integration, authentication, error handling, testing, and best practices for both local stdio and remote OAuth 2.1 deployment options. 
