@@ -2,6 +2,7 @@
 Main Orchestrator for Slack Chatter Service
 Unified entry point that can run different modes:
 - MCP Server: Provides search capabilities via MCP protocol
+- HTTP MCP Server: Provides MCP capabilities over HTTP for remote access
 - Ingestion Worker: Runs background ingestion of Slack messages
 - Search Service: Standalone search service (for testing)
 """
@@ -14,7 +15,7 @@ from typing import Optional
 
 from lib.config import config
 from search.service import create_search_service
-from mcp.server import create_mcp_server
+from mcp.server import create_mcp_server, create_mcp_remote_server
 from mcp.llm_search_agent import create_llm_search_agent
 
 
@@ -50,6 +51,57 @@ class SlackChatterOrchestrator:
             
         except Exception as e:
             self.logger.error(f"MCP server failed: {str(e)}")
+            sys.exit(1)
+    
+    async def run_mcp_remote_server(self):
+        """Run MCP Remote Protocol server with OAuth 2.1 and SSE"""
+        print("🚀 Starting MCP Remote Protocol Server")
+        print("=" * 60)
+        print("🔒 OAuth 2.1 authentication enabled")
+        print("⚡ Server-Sent Events (SSE) communication")
+        print("🌐 Official MCP Remote Protocol implementation")
+        print("=" * 60)
+        
+        try:
+            # Initialize services
+            self.search_service = create_search_service()
+            self.search_agent = create_llm_search_agent()
+            
+            # Create enhanced search service
+            enhanced_search_service = EnhancedSearchService(
+                search_service=self.search_service,
+                search_agent=self.search_agent
+            )
+            
+            # Import and run the FastAPI app
+            from mcp.fastapi_app import app, set_search_service
+            import uvicorn
+            
+            # Set the search service for the MCP remote server
+            set_search_service(enhanced_search_service)
+            
+            self.logger.info("Starting MCP Remote Protocol server on port 8080...")
+            print(f"🔒 OAuth Discovery: http://0.0.0.0:8080/.well-known/oauth-authorization-server")
+            print(f"🔑 Authorization: http://0.0.0.0:8080/oauth/authorize")
+            print(f"🎟️  Token: http://0.0.0.0:8080/oauth/token")
+            print(f"⚡ MCP SSE: http://0.0.0.0:8080/mcp/sse")
+            print(f"📡 MCP Request: http://0.0.0.0:8080/mcp/request")
+            print(f"👤 Session Info: http://0.0.0.0:8080/mcp/session")
+            print(f"❤️  Health Check: http://0.0.0.0:8080/health")
+            print(f"🐛 Debug OAuth: http://0.0.0.0:8080/debug/oauth-clients")
+            print(f"📚 API Docs: http://0.0.0.0:8080/docs")
+            
+            # Run the server
+            await uvicorn.run(
+                app,
+                host="0.0.0.0",
+                port=8080,
+                log_level="info",
+                access_log=True
+            )
+            
+        except Exception as e:
+            self.logger.error(f"MCP Remote Protocol server failed: {str(e)}")
             sys.exit(1)
     
     async def run_ingestion_worker(self):
@@ -195,17 +247,18 @@ def create_argument_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  %(prog)s mcp                    # Run MCP server
+  %(prog)s mcp                    # Run MCP server (stdio)
+  %(prog)s remote                 # Run MCP Remote Protocol server (OAuth 2.1 + SSE)
   %(prog)s ingestion              # Run ingestion worker
   %(prog)s search                 # Test search service
   %(prog)s combined               # Run both ingestion and MCP server
-  %(prog)s mcp --log-level debug  # Run with debug logging
+  %(prog)s remote --log-level debug # Run remote server with debug logging
         """
     )
     
     parser.add_argument(
         "mode",
-        choices=["mcp", "ingestion", "search", "combined"],
+        choices=["mcp", "remote", "ingestion", "search", "combined"],
         help="Mode to run the service in"
     )
     
@@ -313,6 +366,8 @@ async def main():
     # Run the selected mode
     if args.mode == "mcp":
         await orchestrator.run_mcp_server()
+    elif args.mode == "remote":
+        await orchestrator.run_mcp_remote_server()
     elif args.mode == "ingestion":
         await orchestrator.run_ingestion_worker()
     elif args.mode == "search":
