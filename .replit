@@ -5,7 +5,7 @@ channel = "stable-24_05"
 packages = ["libxcrypt", "libyaml"]
 
 [deployment]
-run = ["sh", "-c", "python3 replit_deploy.py"]
+run = ["sh", "-c", "python3 main_orchestrator.py remote"]
 deploymentTarget = "cloudrun"
 
 [[ports]]

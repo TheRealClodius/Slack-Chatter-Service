@@ -304,6 +304,8 @@ Changelog:
 - July 07, 2025. Real-time communication via Server-Sent Events
 - July 07, 2025. FastAPI integration for remote protocol
 - July 07, 2025. Initial setup
+- July 07, 2025. Added remote MCP protocol support with OAuth 2.1 and SSE
+- July 07, 2025. Fixed deployment issues: asyncio conflicts, port configuration, dependencies
 ```
 
 ## User Preferences

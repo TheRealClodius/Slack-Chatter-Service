@@ -63,45 +63,161 @@ class SlackChatterOrchestrator:
         print("=" * 60)
         
         try:
-            # Initialize services
+            # Initialize services with error handling
+            print("🔧 Initializing search service...")
             self.search_service = create_search_service()
+            print("✅ Search service initialized")
+            
+            print("🤖 Initializing LLM search agent...")
             self.search_agent = create_llm_search_agent()
+            print("✅ LLM search agent initialized")
             
             # Create enhanced search service
+            print("🔀 Creating enhanced search service...")
             enhanced_search_service = EnhancedSearchService(
                 search_service=self.search_service,
                 search_agent=self.search_agent
             )
+            print("✅ Enhanced search service created")
             
-            # Import and run the FastAPI app
+            # Import and configure the FastAPI app
+            print("📦 Loading FastAPI application...")
             from mcp.fastapi_app import app, set_search_service
             import uvicorn
             
             # Set the search service for the MCP remote server
+            print("🔗 Connecting search service to MCP server...")
             set_search_service(enhanced_search_service)
+            print("✅ Search service connected")
             
-            self.logger.info("Starting MCP Remote Protocol server on port 8080...")
-            print(f"🔒 OAuth Discovery: http://0.0.0.0:8080/.well-known/oauth-authorization-server")
-            print(f"🔑 Authorization: http://0.0.0.0:8080/oauth/authorize")
-            print(f"🎟️  Token: http://0.0.0.0:8080/oauth/token")
-            print(f"⚡ MCP SSE: http://0.0.0.0:8080/mcp/sse")
-            print(f"📡 MCP Request: http://0.0.0.0:8080/mcp/request")
-            print(f"👤 Session Info: http://0.0.0.0:8080/mcp/session")
-            print(f"❤️  Health Check: http://0.0.0.0:8080/health")
-            print(f"🐛 Debug OAuth: http://0.0.0.0:8080/debug/oauth-clients")
-            print(f"📚 API Docs: http://0.0.0.0:8080/docs")
+            # Get port from environment or use 5000 for Replit
+            import os
+            port = int(os.getenv('PORT', 5000))
             
-            # Run the server
-            await uvicorn.run(
+            self.logger.info(f"Starting MCP Remote Protocol server on port {port}...")
+            print(f"🔒 OAuth Discovery: http://0.0.0.0:{port}/.well-known/oauth-authorization-server")
+            print(f"🔑 Authorization: http://0.0.0.0:{port}/oauth/authorize")
+            print(f"🎟️  Token: http://0.0.0.0:{port}/oauth/token")
+            print(f"⚡ MCP SSE: http://0.0.0.0:{port}/mcp/sse")
+            print(f"📡 MCP Request: http://0.0.0.0:{port}/mcp/request")
+            print(f"👤 Session Info: http://0.0.0.0:{port}/mcp/session")
+            print(f"❤️  Health Check: http://0.0.0.0:{port}/health")
+            print(f"🐛 Debug OAuth: http://0.0.0.0:{port}/debug/oauth-clients")
+            print(f"📚 API Docs: http://0.0.0.0:{port}/docs")
+            
+            # Run the server with uvicorn.run instead of asyncio.run to avoid event loop conflict
+            print(f"🚀 Starting uvicorn server on 0.0.0.0:{port}...")
+            uvicorn.run(
                 app,
                 host="0.0.0.0",
-                port=8080,
+                port=port,
+                log_level="info",
+                access_log=True,
+                loop="asyncio"
+            )
+            
+        except ImportError as e:
+            self.logger.error(f"Missing dependency: {str(e)}")
+            print(f"❌ Missing dependency: {str(e)}")
+            print("💡 Try running: python3 -m pip install fastapi uvicorn sse-starlette")
+            sys.exit(1)
+        except OSError as e:
+            if "Address already in use" in str(e):
+                self.logger.error(f"Port {port} is already in use")
+                print(f"❌ Port {port} is already in use")
+                print("💡 Try stopping other services or use a different port")
+            else:
+                self.logger.error(f"Network error: {str(e)}")
+                print(f"❌ Network error: {str(e)}")
+            sys.exit(1)
+        except Exception as e:
+            self.logger.error(f"MCP Remote Protocol server failed: {str(e)}")
+            print(f"❌ Server startup failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)
+    
+    def run_mcp_remote_server_sync(self):
+        """Synchronous wrapper for running MCP Remote Protocol server"""
+        print("🚀 Starting MCP Remote Protocol Server")
+        print("=" * 60)
+        print("🔒 OAuth 2.1 authentication enabled")
+        print("⚡ Server-Sent Events (SSE) communication")
+        print("🌐 Official MCP Remote Protocol implementation")
+        print("=" * 60)
+        
+        try:
+            # Initialize services with error handling
+            print("🔧 Initializing search service...")
+            self.search_service = create_search_service()
+            print("✅ Search service initialized")
+            
+            print("🤖 Initializing LLM search agent...")
+            self.search_agent = create_llm_search_agent()
+            print("✅ LLM search agent initialized")
+            
+            # Create enhanced search service
+            print("🔀 Creating enhanced search service...")
+            enhanced_search_service = EnhancedSearchService(
+                search_service=self.search_service,
+                search_agent=self.search_agent
+            )
+            print("✅ Enhanced search service created")
+            
+            # Import and configure the FastAPI app
+            print("📦 Loading FastAPI application...")
+            from mcp.fastapi_app import app, set_search_service
+            import uvicorn
+            
+            # Set the search service for the MCP remote server
+            print("🔗 Connecting search service to MCP server...")
+            set_search_service(enhanced_search_service)
+            print("✅ Search service connected")
+            
+            # Get port from environment or use 5000 for Replit
+            import os
+            port = int(os.getenv('PORT', 5000))
+            
+            self.logger.info(f"Starting MCP Remote Protocol server on port {port}...")
+            print(f"🔒 OAuth Discovery: http://0.0.0.0:{port}/.well-known/oauth-authorization-server")
+            print(f"🔑 Authorization: http://0.0.0.0:{port}/oauth/authorize")
+            print(f"🎟️  Token: http://0.0.0.0:{port}/oauth/token")
+            print(f"⚡ MCP SSE: http://0.0.0.0:{port}/mcp/sse")
+            print(f"📡 MCP Request: http://0.0.0.0:{port}/mcp/request")
+            print(f"👤 Session Info: http://0.0.0.0:{port}/mcp/session")
+            print(f"❤️  Health Check: http://0.0.0.0:{port}/health")
+            print(f"🐛 Debug OAuth: http://0.0.0.0:{port}/debug/oauth-clients")
+            print(f"📚 API Docs: http://0.0.0.0:{port}/docs")
+            
+            # Run the server synchronously (no asyncio.run conflicts)
+            print(f"🚀 Starting uvicorn server on 0.0.0.0:{port}...")
+            uvicorn.run(
+                app,
+                host="0.0.0.0",
+                port=port,
                 log_level="info",
                 access_log=True
             )
             
+        except ImportError as e:
+            self.logger.error(f"Missing dependency: {str(e)}")
+            print(f"❌ Missing dependency: {str(e)}")
+            print("💡 Try running: python3 -m pip install fastapi uvicorn sse-starlette")
+            sys.exit(1)
+        except OSError as e:
+            if "Address already in use" in str(e):
+                self.logger.error(f"Port {port} is already in use")
+                print(f"❌ Port {port} is already in use")
+                print("💡 Try stopping other services or use a different port")
+            else:
+                self.logger.error(f"Network error: {str(e)}")
+                print(f"❌ Network error: {str(e)}")
+            sys.exit(1)
         except Exception as e:
             self.logger.error(f"MCP Remote Protocol server failed: {str(e)}")
+            print(f"❌ Server startup failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             sys.exit(1)
     
     async def run_ingestion_worker(self):
@@ -292,7 +408,7 @@ def setup_logging(log_level: str):
     )
 
 
-async def main():
+def main():
     """Main entry point"""
     parser = create_argument_parser()
     args = parser.parse_args()
@@ -363,25 +479,32 @@ async def main():
     # Create orchestrator
     orchestrator = SlackChatterOrchestrator()
     
-    # Run the selected mode
-    if args.mode == "mcp":
-        await orchestrator.run_mcp_server()
-    elif args.mode == "remote":
-        await orchestrator.run_mcp_remote_server()
-    elif args.mode == "ingestion":
-        await orchestrator.run_ingestion_worker()
-    elif args.mode == "search":
-        await orchestrator.run_search_service()
-    elif args.mode == "combined":
-        await orchestrator.run_combined_mode()
-    else:
-        print(f"Unknown mode: {args.mode}")
-        sys.exit(1)
+    # Handle remote mode synchronously (no asyncio.run needed)
+    if args.mode == "remote":
+        orchestrator.run_mcp_remote_server_sync()
+        return
+    
+    # All other modes run with asyncio
+    async def run_async_mode():
+        if args.mode == "mcp":
+            await orchestrator.run_mcp_server()
+        elif args.mode == "ingestion":
+            await orchestrator.run_ingestion_worker()
+        elif args.mode == "search":
+            await orchestrator.run_search_service()
+        elif args.mode == "combined":
+            await orchestrator.run_combined_mode()
+        else:
+            print(f"Unknown mode: {args.mode}")
+            sys.exit(1)
+    
+    # Run async modes with asyncio.run
+    asyncio.run(run_async_mode())
 
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
         print("\n👋 Goodbye!")
     except Exception as e:
