@@ -1,10 +1,20 @@
-# MCP Tool Deployment Guide
+# MCP Streamable HTTP Deployment Guide
 
-## 🚀 How to Deploy Slack Chatter Service as an MCP Tool
+## 🚀 MCP Streamable HTTP Standard (March 2025)
 
-The Slack Chatter Service supports two MCP deployment modes:
+The Slack Chatter Service now implements the **latest MCP Streamable HTTP standard** with modern features:
+
+### ✨ Key Features
+- **Single endpoint** (`/mcp`) supporting both GET and POST requests
+- **Session management** via `mcp-session-id` headers
+- **JSON-RPC 2.0 protocol** compliance
+- **Bidirectional communication** support
+- **Simplified authentication** (API keys, OAuth tokens)
+
+### 🔄 Deployment Models
+
 1. **Local MCP (stdio)** - Traditional subprocess execution with JSON-RPC over stdin/stdout
-2. **MCP Remote Protocol** - OAuth 2.1 + SSE server for remote authenticated access
+2. **MCP Streamable HTTP** - Modern single-endpoint server with session headers
 
 ## 🛠️ Available MCP Tools
 
@@ -120,277 +130,16 @@ The Slack Chatter Service supports two MCP deployment modes:
 }
 ```
 
-## 🎯 MCP Deployment Models
+## 🎯 Client Configuration Guide
 
-### 1. **Local MCP Package Installation** (Recommended for Development)
+### MCP Client Structure (March 2025 Standard)
 
-The most common way to deploy MCP tools is as installable Python packages:
+The new Streamable HTTP standard requires specific client configurations:
 
-```bash
-# Install the package
-pip install slack-chatter-service
+#### 1. Local MCP Configuration (stdio)
 
-# Or for development
-pip install -e .
-```
+**For Claude Desktop, Cline, or other MCP clients:**
 
-**MCP Client Configuration:**
-```json
-{
-  "mcpServers": {
-    "slack-chatter": {
-      "command": "slack-chatter",
-      "args": ["mcp"],
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token",
-        "OPENAI_API_KEY": "sk-your-key",
-        "PINECONE_API_KEY": "your-pinecone-key",
-        "PINECONE_ENVIRONMENT": "us-west1-gcp",
-        "NOTION_INTEGRATION_SECRET": "your-notion-secret",
-        "NOTION_DATABASE_ID": "your-database-id",
-        "SLACK_CHANNELS": "C1234567890,C0987654321"
-      }
-    }
-  }
-}
-```
-
-### 2. **MCP Remote Protocol Server** (Recommended for Production)
-
-Deploy as a persistent server with OAuth 2.1 authentication and SSE communication:
-
-```bash
-# Start the MCP Remote Protocol server
-python main_orchestrator.py remote
-
-# Server runs on http://localhost:8080 with:
-# - OAuth 2.1 authentication with PKCE
-# - Server-Sent Events for real-time communication
-# - Scoped permissions: mcp:search, mcp:channels, mcp:stats
-# - Session management with token expiration
-```
-
-**Available Endpoints:**
-- `/.well-known/oauth-authorization-server` - OAuth 2.1 discovery
-- `/oauth/authorize` - Authorization endpoint
-- `/oauth/token` - Token exchange
-- `/mcp/sse` - Server-Sent Events communication
-- `/mcp/request` - Direct MCP JSON-RPC requests
-- `/mcp/session` - Session information
-- `/health` - Health check
-- `/docs` - API documentation
-
-**Client Integration:**
-```python
-from mcp_remote_client import MCPRemoteClient
-
-client = MCPRemoteClient(
-    base_url="https://your-deployment.com",
-    client_id="mcp-slack-chatter-client",
-    client_secret="your_client_secret"  # Get from server logs
-)
-
-await client.authenticate()
-results = await client.search_messages("deployment issues")
-```
-
-### 3. **Direct Python Execution** (Local Development)
-
-For development or custom installations:
-
-```json
-{
-  "mcpServers": {
-    "slack-chatter": {
-      "command": "python3",
-      "args": ["/path/to/slack-chatter-service/main_orchestrator.py", "mcp"],
-      "cwd": "/path/to/slack-chatter-service",
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token",
-        "OPENAI_API_KEY": "sk-your-key"
-      }
-    }
-  }
-}
-```
-
-### 4. **Docker Container Deployment** (Recommended for Production)
-
-#### Local MCP Container
-```dockerfile
-# Dockerfile.mcp
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY . .
-RUN pip install -e .
-
-# Set environment variables
-ENV SLACK_BOT_TOKEN=""
-ENV OPENAI_API_KEY=""
-ENV PINECONE_API_KEY=""
-ENV PINECONE_ENVIRONMENT=""
-ENV NOTION_INTEGRATION_SECRET=""
-ENV NOTION_DATABASE_ID=""
-ENV SLACK_CHANNELS=""
-
-ENTRYPOINT ["slack-chatter", "mcp"]
-```
-
-**MCP Client Configuration:**
-```json
-{
-  "mcpServers": {
-    "slack-chatter": {
-      "command": "docker",
-      "args": ["run", "--rm", "-i", "slack-chatter-service:latest"],
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token",
-        "OPENAI_API_KEY": "sk-your-key"
-      }
-    }
-  }
-}
-```
-
-#### MCP Remote Protocol Container
-```dockerfile
-# Dockerfile.remote
-FROM python:3.11-slim
-
-WORKDIR /app
-COPY . .
-RUN pip install -e .
-
-# Set environment variables
-ENV SLACK_BOT_TOKEN=""
-ENV OPENAI_API_KEY=""
-ENV PINECONE_API_KEY=""
-ENV PINECONE_ENVIRONMENT=""
-ENV NOTION_INTEGRATION_SECRET=""
-ENV NOTION_DATABASE_ID=""
-ENV SLACK_CHANNELS=""
-
-EXPOSE 8080
-CMD ["python", "main_orchestrator.py", "remote"]
-```
-
-### 5. **Cloud Deployment Options**
-
-#### Railway (Recommended)
-```bash
-# Deploy MCP Remote Protocol server
-railway deploy
-# Set start command: python main_orchestrator.py remote
-# Configure environment variables
-# Enable domain for OAuth redirects
-```
-
-#### Render
-```bash
-# Create Web Service
-# Set start command: python main_orchestrator.py remote
-# Configure port: 8080
-# Add environment variables
-```
-
-#### Replit
-```bash
-# Import from GitHub
-# Add environment variables in Secrets
-# Run: python main_orchestrator.py remote
-# Enable Always On
-```
-
-### 6. **Hybrid Deployment** (Background Worker + MCP Server)
-
-For complete functionality, deploy both ingestion worker and MCP server:
-
-```yaml
-# docker-compose.yml
-version: '3.8'
-
-services:
-  ingestion-worker:
-    build: .
-    command: ["python", "main_orchestrator.py", "ingestion"]
-    environment:
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # ... other env vars
-    restart: unless-stopped
-
-  mcp-remote-server:
-    build: .
-    command: ["python", "main_orchestrator.py", "remote"]
-    ports:
-      - "8080:8080"
-    environment:
-      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      # ... other env vars
-    restart: unless-stopped
-```
-
-### 7. **Standalone Server Mode**
-
-For shared team usage, run as a persistent background service:
-
-```bash
-# Combined mode: runs both ingestion and MCP stdio server
-slack-chatter combined
-
-# Or separate processes:
-slack-chatter ingestion &  # Background ingestion
-slack-chatter remote       # MCP Remote Protocol server
-```
-
-## 🔧 MCP Client Examples
-
-### Claude Desktop Configuration
-
-#### Local MCP (stdio)
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "slack-chatter": {
-      "command": "slack-chatter",
-      "args": ["mcp"],
-      "env": {
-        "SLACK_BOT_TOKEN": "xoxb-your-token",
-        "OPENAI_API_KEY": "sk-your-key",
-        "PINECONE_API_KEY": "your-pinecone-key",
-        "PINECONE_ENVIRONMENT": "us-west1-gcp",
-        "NOTION_INTEGRATION_SECRET": "your-notion-secret",
-        "NOTION_DATABASE_ID": "your-database-id",
-        "SLACK_CHANNELS": "C1234567890,C0987654321"
-      }
-    }
-  }
-}
-```
-
-#### Remote MCP (OAuth 2.1)
-For remote access, use the MCP Remote Protocol client:
-
-```python
-from mcp_remote_client import MCPRemoteClient
-
-client = MCPRemoteClient(
-    base_url="https://your-deployment.replit.app",
-    client_id="mcp-slack-chatter-client",
-    client_secret="your_client_secret"
-)
-
-await client.authenticate()
-results = await client.search_messages("deployment issues")
-```
-
-### Custom Agent Configuration
-
-#### Local MCP
 ```json
 {
   "mcpServers": {
@@ -411,130 +160,463 @@ results = await client.search_messages("deployment issues")
 }
 ```
 
-#### Remote MCP (Production)
-```javascript
-// JavaScript/Node.js example
-const { MCPRemoteClient } = require('mcp-remote-client');
+#### 2. Remote MCP Configuration (Streamable HTTP)
 
-const client = new MCPRemoteClient({
-  baseUrl: 'https://your-deployment.railway.app',
-  clientId: 'mcp-slack-chatter-client',
-  clientSecret: process.env.MCP_CLIENT_SECRET
-});
+**For modern MCP clients supporting HTTP transport:**
 
-await client.authenticate();
-const results = await client.searchMessages('deployment issues');
-```
-
-**Required Environment Variables:**
-- `SLACK_BOT_TOKEN` - Your Slack bot token (starts with `xoxb-`)
-- `OPENAI_API_KEY` - Your OpenAI API key (starts with `sk-`)
-- `SLACK_CHANNELS` - Comma-separated channel IDs where your bot is a member
-- `PINECONE_API_KEY` - Your Pinecone API key
-- `PINECONE_ENVIRONMENT` - Your Pinecone environment (e.g., `us-west1-gcp`)
-- `NOTION_INTEGRATION_SECRET` - Your Notion integration secret
-- `NOTION_DATABASE_ID` - Your Notion database ID
-
-### Cline/Continue Configuration
-
-#### Local MCP
 ```json
 {
-  "mcp": {
-    "servers": {
-      "slack-chatter": {
-        "command": "slack-chatter",
-        "args": ["mcp"],
-        "env": {
-          "SLACK_BOT_TOKEN": "xoxb-your-token",
-          "OPENAI_API_KEY": "sk-your-key"
-        }
+  "mcpServers": {
+    "slack-chatter-remote": {
+      "transport": "http",
+      "endpoint": "https://your-deployment.com/mcp",
+      "authentication": {
+        "type": "bearer",
+        "token": "mcp_key_your_api_key_here"
+      },
+      "options": {
+        "standard": "streamable-http-2025",
+        "session_management": true,
+        "supports_get": true,
+        "supports_post": true
       }
     }
   }
 }
 ```
 
-#### Remote MCP (Advanced)
-```typescript
-// TypeScript example for custom integrations
-import { MCPRemoteClient } from 'mcp-remote-client';
+#### 3. Legacy/Transitional Configuration
 
-const client = new MCPRemoteClient({
-  baseUrl: 'https://your-deployment.render.com',
-  clientId: 'mcp-slack-chatter-client',
-  clientSecret: process.env.MCP_CLIENT_SECRET,
-  scopes: ['mcp:search', 'mcp:channels', 'mcp:stats']
-});
+**For older MCP clients (if needed):**
 
-// Initialize OAuth 2.1 flow
-await client.authenticate();
-
-// Use MCP tools
-const channels = await client.getSlackChannels();
-const results = await client.searchSlackMessages('authentication errors');
-const stats = await client.getSearchStats();
+```json
+{
+  "mcpServers": {
+    "slack-chatter": {
+      "command": "python3",
+      "args": ["/path/to/slack-chatter-service/main_orchestrator.py", "mcp"],
+      "cwd": "/path/to/slack-chatter-service",
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-your-token",
+        "OPENAI_API_KEY": "sk-your-key"
+      }
+    }
+  }
+}
 ```
 
-## 🔐 OAuth 2.1 Authentication Flow
+### Client Implementation Examples
 
-### Client Registration
+#### Python Client (Streamable HTTP)
 
-The MCP Remote Protocol server automatically registers a default OAuth client on startup:
+```python
+import asyncio
+import httpx
+import json
+from typing import Dict, Optional
 
+class MCPStreamableClient:
+    def __init__(self, base_url: str, api_key: str):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.session_id: Optional[str] = None
+        self.client = httpx.AsyncClient()
+    
+    async def _make_request(self, method: str, data: Dict) -> Dict:
+        """Make an MCP request with session management"""
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        
+        # Add session ID if we have one
+        if self.session_id:
+            headers["mcp-session-id"] = self.session_id
+        
+        response = await self.client.post(
+            f"{self.base_url}/mcp",
+            json=data,
+            headers=headers
+        )
+        
+        # Extract session ID from response
+        session_id = response.headers.get("mcp-session-id")
+        if session_id:
+            self.session_id = session_id
+        
+        return response.json()
+    
+    async def initialize(self) -> Dict:
+        """Initialize MCP session"""
+        return await self._make_request("initialize", {
+            "jsonrpc": "2.0",
+            "method": "initialize",
+            "params": {},
+            "id": 1
+        })
+    
+    async def list_tools(self) -> Dict:
+        """List available MCP tools"""
+        return await self._make_request("tools/list", {
+            "jsonrpc": "2.0",
+            "method": "tools/list",
+            "params": {},
+            "id": 2
+        })
+    
+    async def search_messages(self, query: str, top_k: int = 10, **kwargs) -> Dict:
+        """Search Slack messages"""
+        return await self._make_request("tools/call", {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "search_slack_messages",
+                "arguments": {"query": query, "top_k": top_k, **kwargs}
+            },
+            "id": 3
+        })
+    
+    async def get_channels(self) -> Dict:
+        """Get available Slack channels"""
+        return await self._make_request("tools/call", {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "get_slack_channels",
+                "arguments": {}
+            },
+            "id": 4
+        })
+    
+    async def get_stats(self) -> Dict:
+        """Get search statistics"""
+        return await self._make_request("tools/call", {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "get_search_stats",
+                "arguments": {}
+            },
+            "id": 5
+        })
+    
+    async def close(self):
+        """Close the client"""
+        await self.client.aclose()
+
+# Usage example
+async def main():
+    client = MCPStreamableClient(
+        base_url="https://your-deployment.com",
+        api_key="mcp_key_your_api_key_here"
+    )
+    
+    try:
+        # Initialize
+        await client.initialize()
+        
+        # List tools
+        tools = await client.list_tools()
+        print("Available tools:", tools)
+        
+        # Search messages
+        results = await client.search_messages("deployment issues", top_k=5)
+        print("Search results:", results)
+        
+        # Get channels
+        channels = await client.get_channels()
+        print("Channels:", channels)
+        
+        # Get stats
+        stats = await client.get_stats()
+        print("Stats:", stats)
+        
+    finally:
+        await client.close()
+
+if __name__ == "__main__":
+    asyncio.run(main())
 ```
-Client ID: mcp-slack-chatter-client
-Client Secret: <generated-on-startup>
-Scopes: mcp:search, mcp:channels, mcp:stats
-Redirect URIs: 
-  - http://localhost:3000/callback
-  - https://*.replit.app/callback
-  - https://*.railway.app/callback
-  - https://*.render.com/callback
+
+#### JavaScript Client (Streamable HTTP)
+
+```javascript
+class MCPStreamableClient {
+    constructor(baseUrl, apiKey) {
+        this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
+        this.sessionId = null;
+    }
+    
+    async _makeRequest(method, data) {
+        const headers = {
+            'Authorization': `Bearer ${this.apiKey}`,
+            'Content-Type': 'application/json'
+        };
+        
+        // Add session ID if we have one
+        if (this.sessionId) {
+            headers['mcp-session-id'] = this.sessionId;
+        }
+        
+        const response = await fetch(`${this.baseUrl}/mcp`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(data)
+        });
+        
+        // Extract session ID from response
+        const sessionId = response.headers.get('mcp-session-id');
+        if (sessionId) {
+            this.sessionId = sessionId;
+        }
+        
+        return response.json();
+    }
+    
+    async initialize() {
+        return this._makeRequest('initialize', {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {},
+            id: 1
+        });
+    }
+    
+    async listTools() {
+        return this._makeRequest('tools/list', {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 2
+        });
+    }
+    
+    async searchMessages(query, topK = 10, options = {}) {
+        return this._makeRequest('tools/call', {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'search_slack_messages',
+                arguments: { query, top_k: topK, ...options }
+            },
+            id: 3
+        });
+    }
+    
+    async getChannels() {
+        return this._makeRequest('tools/call', {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'get_slack_channels',
+                arguments: {}
+            },
+            id: 4
+        });
+    }
+    
+    async getStats() {
+        return this._makeRequest('tools/call', {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'get_search_stats',
+                arguments: {}
+            },
+            id: 5
+        });
+    }
+    
+    // Alternative: GET request (simplified)
+    async simpleSearch(query) {
+        const headers = { 'Authorization': `Bearer ${this.apiKey}` };
+        if (this.sessionId) {
+            headers['mcp-session-id'] = this.sessionId;
+        }
+        
+        const params = new URLSearchParams({
+            method: 'tools/call',
+            name: 'search_slack_messages',
+            query: query,
+            top_k: 5
+        });
+        
+        const response = await fetch(`${this.baseUrl}/mcp?${params}`, {
+            headers
+        });
+        
+        return response.json();
+    }
+}
+
+// Usage
+const client = new MCPStreamableClient(
+    'https://your-deployment.com',
+    'mcp_key_your_api_key_here'
+);
+
+// Initialize and search
+await client.initialize();
+const results = await client.searchMessages('deployment issues', 5);
+console.log(results);
 ```
 
-### Authorization Flow
+## 🔧 Authentication & Session Management
 
-1. **Authorization URL**: `GET /oauth/authorize`
-   ```
-   https://your-deployment.com/oauth/authorize?
-     response_type=code&
-     client_id=mcp-slack-chatter-client&
-     redirect_uri=http://localhost:3000/callback&
-     scope=mcp:search+mcp:channels+mcp:stats&
-     state=random_state&
-     code_challenge=CODE_CHALLENGE&
-     code_challenge_method=S256
-   ```
+### Authentication Methods
 
-2. **Token Exchange**: `POST /oauth/token`
-   ```bash
-   curl -X POST https://your-deployment.com/oauth/token \
-     -H "Content-Type: application/x-www-form-urlencoded" \
-     -d "grant_type=authorization_code" \
-     -d "code=AUTHORIZATION_CODE" \
-     -d "redirect_uri=http://localhost:3000/callback" \
-     -d "client_id=mcp-slack-chatter-client" \
-     -d "client_secret=YOUR_CLIENT_SECRET" \
-     -d "code_verifier=CODE_VERIFIER"
-   ```
+#### 1. API Key Authentication (Recommended)
 
-3. **Access Token Response**:
-   ```json
-   {
-     "access_token": "mcp_access_token_...",
-     "token_type": "Bearer",
-     "expires_in": 86400,
-     "scope": "mcp:search mcp:channels mcp:stats"
-   }
-   ```
-
-### Using Access Tokens
-
-#### Direct MCP Requests
 ```bash
-curl -X POST https://your-deployment.com/mcp/request \
-  -H "Authorization: Bearer mcp_access_token_..." \
+# Header format
+Authorization: Bearer mcp_key_generated_key_here
+
+# Example request
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer mcp_key_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
+
+#### 2. OAuth Token Authentication
+
+```bash
+# Header format
+Authorization: Bearer oauth_token_here
+
+# Example request
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer oauth_token_xyz789..." \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+```
+
+### Session Management
+
+After initial authentication, use the `mcp-session-id` header:
+
+```bash
+# Session-based request
+curl -X GET "https://your-deployment.com/mcp?method=tools/list" \
+  -H "mcp-session-id: mcp_session_generated_id"
+```
+
+### Getting Your API Key
+
+**Development Environment:**
+```bash
+# Visit the dev endpoint
+curl https://your-deployment.com/dev/api-key
+
+# Response:
+{
+  "api_key": "mcp_key_abc123...",
+  "note": "This is for development only.",
+  "usage": "Authorization: Bearer mcp_key_abc123..."
+}
+```
+
+**Production Environment:**
+API keys should be managed through secure configuration or environment variables.
+
+## 🌐 Deployment Methods
+
+### 1. Local Development
+
+```bash
+# Run stdio MCP server
+python main_orchestrator.py mcp
+
+# Run Streamable HTTP server
+python main_orchestrator.py remote
+
+# Combined mode (ingestion + stdio)
+python main_orchestrator.py combined
+```
+
+### 2. Docker Deployment
+
+#### Single Container
+```dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install -e .
+
+ENV SLACK_BOT_TOKEN=""
+ENV OPENAI_API_KEY=""
+ENV PINECONE_API_KEY=""
+ENV PINECONE_ENVIRONMENT=""
+ENV NOTION_INTEGRATION_SECRET=""
+ENV NOTION_DATABASE_ID=""
+ENV SLACK_CHANNELS=""
+
+EXPOSE 8080
+CMD ["python", "main_orchestrator.py", "remote"]
+```
+
+#### Multi-Container Setup
+```yaml
+version: '3.8'
+services:
+  mcp-streamable:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - PINECONE_API_KEY=${PINECONE_API_KEY}
+      - PINECONE_ENVIRONMENT=${PINECONE_ENVIRONMENT}
+      - NOTION_INTEGRATION_SECRET=${NOTION_INTEGRATION_SECRET}
+      - NOTION_DATABASE_ID=${NOTION_DATABASE_ID}
+      - SLACK_CHANNELS=${SLACK_CHANNELS}
+    command: ["python", "main_orchestrator.py", "remote"]
+    restart: unless-stopped
+```
+
+### 3. Cloud Deployment
+
+#### Replit
+```bash
+# Visit: https://replit.com
+# Import from GitHub
+# Add environment variables in Secrets
+# Run: python main_orchestrator.py remote
+# Enable Always On
+```
+
+#### Railway
+```bash
+# Visit: https://railway.app
+# Deploy from GitHub
+# Set start command: python main_orchestrator.py remote
+# Configure port: 8080
+# Add environment variables
+```
+
+#### Render
+```bash
+# Visit: https://render.com
+# Create Web Service
+# Set start command: python main_orchestrator.py remote
+# Configure port: 8080
+# Add environment variables
+```
+
+## 📡 API Endpoints
+
+### Core MCP Endpoint
+
+**`/mcp` (GET & POST)**
+- **Purpose**: Single endpoint for all MCP communication
+- **Methods**: GET, POST
+- **Authentication**: Bearer token or session ID
+- **Content-Type**: application/json (for POST)
+
+**Example POST:**
+```bash
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer mcp_key_abc123..." \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -543,306 +625,70 @@ curl -X POST https://your-deployment.com/mcp/request \
       "name": "search_slack_messages",
       "arguments": {
         "query": "deployment issues",
-        "top_k": 10
+        "top_k": 5
       }
     },
     "id": 1
   }'
 ```
 
-#### Server-Sent Events (SSE)
-```javascript
-const eventSource = new EventSource(
-  'https://your-deployment.com/mcp/sse?access_token=mcp_access_token_...'
-);
-
-eventSource.onmessage = function(event) {
-  const data = JSON.parse(event.data);
-  console.log('MCP Response:', data);
-};
-
-// Send MCP request via SSE
-const request = {
-  jsonrpc: "2.0",
-  method: "tools/call",
-  params: {
-    name: "search_slack_messages",
-    arguments: { query: "authentication errors" }
-  },
-  id: 1
-};
-
-eventSource.addEventListener('open', function() {
-  // Send request (implementation depends on SSE library)
-  sendSSERequest(request);
-});
+**Example GET:**
+```bash
+curl "https://your-deployment.com/mcp?method=tools/list&id=1" \
+  -H "Authorization: Bearer mcp_key_abc123..."
 ```
 
-## 🎯 Deployment Mode Comparison
+### Utility Endpoints
 
-| Feature | Local MCP (stdio) | MCP Remote Protocol |
-|---------|-------------------|---------------------|
-| **Authentication** | None | OAuth 2.1 + PKCE |
-| **Communication** | stdin/stdout | HTTP + SSE |
-| **Deployment** | Subprocess | Web server |
-| **Scalability** | Single process | Multi-client |
-| **Security** | Process isolation | Token-based |
-| **Best For** | Development, MCP clients | Production, web apps |
-| **Port** | None | 8080 |
-| **Setup Complexity** | Low | Medium |
+**`/health`** - Health check
+```bash
+curl https://your-deployment.com/health
+```
 
-## 🚀 Production Deployment Recommendations
+**`/info`** - Server information
+```bash
+curl https://your-deployment.com/info
+```
 
-### Small Teams (< 10 users)
-- **Local MCP**: Use stdio mode with shared package installation
-- **Remote MCP**: Deploy to Replit or Railway for simple web access
+**`/session/{session_id}`** - Session information
+```bash
+curl https://your-deployment.com/session/mcp_session_abc123
+```
 
-### Medium Teams (10-100 users)
-- **Hybrid**: Deploy both ingestion worker and MCP Remote Protocol server
-- **Platforms**: Railway, Render, or Docker containers
-- **Authentication**: OAuth 2.1 with proper redirect URIs
-
-### Large Teams (100+ users)
-- **Dedicated Infrastructure**: VPS or cloud deployment
-- **Load Balancing**: Multiple MCP Remote Protocol server instances
-- **Authentication**: Integrate with corporate SSO (future feature)
-- **Monitoring**: Comprehensive logging and metrics
+**`/dev/api-key`** - Development API key (remove in production)
+```bash
+curl https://your-deployment.com/dev/api-key
+```
 
 ## 🔍 Testing and Validation
 
-### Local MCP Testing
+### Local Testing
+
 ```bash
-# Test local MCP server
+# Test stdio MCP server
 python main_orchestrator.py mcp --validate-config
 
-# Test with MCP client
+# Test with echo
 echo '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}' | python main_orchestrator.py mcp
 ```
 
-### Remote MCP Testing
-```bash
-# Test OAuth discovery
-curl https://your-deployment.com/.well-known/oauth-authorization-server
+### Remote Testing
 
-# Test health endpoint
+```bash
+# Test server health
 curl https://your-deployment.com/health
 
-# Test unauthorized access (should fail)
-curl -X POST https://your-deployment.com/mcp/request \
+# Test authentication (should fail)
+curl -X POST https://your-deployment.com/mcp \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
 
-# Test with proper OAuth flow
-# (Use client libraries for full OAuth implementation)
+# Test with authentication
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer mcp_key_abc123..." \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
 ```
-
-## 📊 Performance and Monitoring
-
-### Metrics to Monitor
-- **Token usage**: Track OAuth token generation and validation
-- **Request latency**: Monitor MCP request/response times
-- **Error rates**: Track authentication failures and MCP errors
-- **Resource usage**: Monitor CPU, memory, and network usage
-
-### Logging Configuration
-```python
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-
-# Enable debug logging for development
-logging.getLogger('mcp.server').setLevel(logging.DEBUG)
-logging.getLogger('mcp.fastapi_app').setLevel(logging.DEBUG)
-```
-
-## 🔒 Security Considerations
-
-### Production Security Checklist
-- [ ] **HTTPS only** for OAuth 2.1 flows
-- [ ] **Client secret rotation** on regular basis
-- [ ] **Token expiration** properly configured (24 hours)
-- [ ] **CORS restrictions** properly configured
-- [ ] **Rate limiting** implemented for OAuth endpoints
-- [ ] **Input validation** for all MCP parameters
-- [ ] **Audit logging** for authentication events
-- [ ] **Network security** (firewalls, VPN access)
-
-### Development Security
-- [ ] **Environment variables** for all secrets
-- [ ] **No hardcoded credentials** in source code
-- [ ] **Secure local development** environment
-- [ ] **Regular dependency updates** via `uv sync`
-
-The MCP deployment guide now provides comprehensive coverage of both local stdio and remote OAuth 2.1 deployment options, with complete working examples for production use.
-
-## 🔧 Enhanced Authentication Flow
-
-### PKCE Implementation Details
-
-PKCE (Proof Key for Code Exchange) prevents authorization code interception attacks:
-
-```python
-import secrets
-import base64
-import hashlib
-
-def generate_pkce_pair():
-    """Generate PKCE verifier and challenge"""
-    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode('utf-8')).digest()
-    ).decode('utf-8').rstrip('=')
-    return code_verifier, code_challenge
-```
-
-### Complete Authentication Flow
-
-```python
-import asyncio
-import json
-import httpx
-import secrets
-import base64
-import hashlib
-from urllib.parse import urlencode
-
-class MCPAuthenticatedClient:
-    def __init__(self, base_url: str, client_id: str, client_secret: str):
-        self.base_url = base_url
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.access_token = None
-        self.token_expires_at = None
-    
-    def generate_pkce_pair(self):
-        """Generate PKCE verifier and challenge"""
-        code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
-        code_challenge = base64.urlsafe_b64encode(
-            hashlib.sha256(code_verifier.encode('utf-8')).digest()
-        ).decode('utf-8').rstrip('=')
-        return code_verifier, code_challenge
-    
-    async def authenticate(self, redirect_uri: str = "http://localhost:3000/callback"):
-        """Perform complete OAuth 2.1 authentication"""
-        code_verifier, code_challenge = self.generate_pkce_pair()
-        
-        # Start authorization
-        auth_params = {
-            "response_type": "code",
-            "client_id": self.client_id,
-            "redirect_uri": redirect_uri,
-            "scope": "mcp:search mcp:channels mcp:stats",
-            "state": secrets.token_urlsafe(32),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256"
-        }
-        
-        auth_url = f"{self.base_url}/oauth/authorize?" + urlencode(auth_params)
-        print(f"Visit: {auth_url}")
-        
-        # Get authorization code (in practice, this comes from redirect)
-        auth_code = input("Enter authorization code: ")
-        
-        # Exchange code for token
-        async with httpx.AsyncClient() as client:
-            token_data = {
-                "grant_type": "authorization_code",
-                "code": auth_code,
-                "redirect_uri": redirect_uri,
-                "client_id": self.client_id,
-                "client_secret": self.client_secret,
-                "code_verifier": code_verifier
-            }
-            
-            response = await client.post(f"{self.base_url}/oauth/token", data=token_data)
-            
-            if response.status_code != 200:
-                raise Exception(f"Token exchange failed: {response.text}")
-            
-            token_result = response.json()
-            self.access_token = token_result["access_token"]
-            
-            # Calculate expiration time
-            import time
-            self.token_expires_at = time.time() + token_result.get("expires_in", 3600)
-            
-            return token_result
-    
-    def is_token_valid(self):
-        """Check if current token is still valid"""
-        if not self.access_token:
-            return False
-        
-        import time
-        return time.time() < (self.token_expires_at or 0)
-    
-    async def make_mcp_request(self, method: str, params: dict = None):
-        """Make authenticated MCP request with automatic token validation"""
-        if not self.is_token_valid():
-            raise Exception("Token expired or invalid. Re-authenticate required.")
-        
-        request_data = {
-            "jsonrpc": "2.0",
-            "method": method,
-            "params": params or {},
-            "id": secrets.randbelow(10000)
-        }
-        
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/mcp/request",
-                json=request_data,
-                headers={"Authorization": f"Bearer {self.access_token}"}
-            )
-            
-            result = response.json()
-            
-            # Check for errors
-            if "error" in result:
-                raise MCPError(result["error"])
-            
-            return result
-    
-    async def search_messages(self, query: str, **kwargs):
-        """Search Slack messages with error handling"""
-        return await self.make_mcp_request(
-            "tools/call",
-            {
-                "name": "search_slack_messages",
-                "arguments": {"query": query, **kwargs}
-            }
-        )
-    
-    async def get_channels(self):
-        """Get available channels"""
-        return await self.make_mcp_request(
-            "tools/call",
-            {
-                "name": "get_slack_channels",
-                "arguments": {}
-            }
-        )
-    
-    async def get_stats(self):
-        """Get search statistics"""
-        return await self.make_mcp_request(
-            "tools/call",
-            {
-                "name": "get_search_stats",
-                "arguments": {}
-            }
-        )
-
-class MCPError(Exception):
-    """Custom exception for MCP errors"""
-    def __init__(self, error_data):
-        self.code = error_data.get("code")
-        self.message = error_data.get("message")
-        self.data = error_data.get("data")
-        super().__init__(f"MCP Error {self.code}: {self.message}")
 
 ## 🚨 Error Handling
 
@@ -850,10 +696,10 @@ class MCPError(Exception):
 
 | Code | Description | Solution |
 |------|-------------|----------|
-| -32001 | Authentication failed | Check token validity, re-authenticate |
-| -32002 | Insufficient scope | Request proper scopes during auth |
-| -32003 | Invalid request | Check JSON-RPC format and parameters |
-| -32004 | Service unavailable | Ensure ingestion has run, check service health |
+| -32001 | Authentication failed | Check API key validity |
+| -32002 | Server not initialized | Ensure server is running |
+| -32003 | Invalid request | Check JSON-RPC format |
+| -32004 | Service unavailable | Ensure ingestion has run |
 | -32005 | Rate limit exceeded | Implement backoff strategy |
 
 ### Error Response Format
@@ -866,274 +712,141 @@ class MCPError(Exception):
     "code": -32001,
     "message": "Authentication failed",
     "data": {
-      "details": "Token expired",
-      "expires_at": "2024-01-01T12:00:00Z"
+      "details": "Invalid API key"
     }
   }
 }
 ```
 
-### Error Handling Example
+### Robust Error Handling
 
 ```python
-import asyncio
-import time
-
-async def robust_search(client, query, max_retries=3):
-    """Search with robust error handling and retries"""
+async def robust_mcp_call(client, method, params, max_retries=3):
+    """Make MCP call with robust error handling"""
     for attempt in range(max_retries):
         try:
-            return await client.search_messages(query)
-            
-        except MCPError as e:
-            if e.code == -32001:  # Authentication failed
-                print("Token expired, re-authenticating...")
-                await client.authenticate()
-                continue
-                
-            elif e.code == -32005:  # Rate limited
-                wait_time = 2 ** attempt  # Exponential backoff
-                print(f"Rate limited, waiting {wait_time}s...")
-                await asyncio.sleep(wait_time)
-                continue
-                
-            else:
-                print(f"Unhandled error: {e}")
-                raise
-                
+            return await client._make_request(method, {
+                "jsonrpc": "2.0",
+                "method": method,
+                "params": params,
+                "id": attempt + 1
+            })
         except Exception as e:
-            print(f"Network error on attempt {attempt + 1}: {e}")
             if attempt == max_retries - 1:
                 raise
-            await asyncio.sleep(1)
-    
-    raise Exception(f"Failed after {max_retries} attempts")
+            await asyncio.sleep(2 ** attempt)  # Exponential backoff
 ```
 
-## 🧪 Testing Framework
+## 📊 Performance Optimization
 
-### Unit Tests
-
-```python
-import pytest
-import asyncio
-from unittest.mock import Mock, patch
-
-class TestMCPClient:
-    @pytest.fixture
-    async def client(self):
-        return MCPAuthenticatedClient(
-            base_url="http://localhost:8080",
-            client_id="test-client",
-            client_secret="test-secret"
-        )
-    
-    @pytest.mark.asyncio
-    async def test_pkce_generation(self, client):
-        """Test PKCE generation"""
-        verifier, challenge = client.generate_pkce_pair()
-        
-        assert len(verifier) >= 43
-        assert len(challenge) >= 43
-        assert verifier != challenge
-    
-    @pytest.mark.asyncio
-    async def test_search_messages(self, client):
-        """Test message search"""
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_response = Mock()
-            mock_response.json.return_value = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {"messages": []}
-            }
-            mock_client.return_value.__aenter__.return_value.post.return_value = mock_response
-            
-            # Set valid token
-            client.access_token = "test-token"
-            client.token_expires_at = time.time() + 3600
-            
-            result = await client.search_messages("test query")
-            assert "result" in result
-    
-    @pytest.mark.asyncio
-    async def test_error_handling(self, client):
-        """Test error handling"""
-        with patch('httpx.AsyncClient') as mock_client:
-            mock_response = Mock()
-            mock_response.json.return_value = {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "error": {
-                    "code": -32001,
-                    "message": "Authentication failed"
-                }
-            }
-            mock_client.return_value.__aenter__.return_value.post.return_value = mock_response
-            
-            client.access_token = "invalid-token"
-            client.token_expires_at = time.time() + 3600
-            
-            with pytest.raises(MCPError) as exc_info:
-                await client.search_messages("test")
-            
-            assert exc_info.value.code == -32001
-```
-
-### Integration Tests
+### Connection Pooling
 
 ```python
-@pytest.mark.integration
-async def test_full_oauth_flow():
-    """Test complete OAuth 2.1 flow"""
-    client = MCPAuthenticatedClient(
-        base_url="http://localhost:8080",
-        client_id="mcp-slack-chatter-client",
-        client_secret=os.getenv("CLIENT_SECRET")
+# Reuse HTTP connections
+async with httpx.AsyncClient() as client:
+    # Make multiple requests with the same client
+    results = await asyncio.gather(
+        *[make_request(client, query) for query in queries]
     )
-    
-    # This would require manual intervention in real tests
-    # In CI/CD, you'd mock the authorization step
-    if not os.getenv("CI"):
-        await client.authenticate()
-        
-        # Test all endpoints
-        channels = await client.get_channels()
-        assert "result" in channels
-        
-        stats = await client.get_stats()
-        assert "result" in stats
-        
-        results = await client.search_messages("test", top_k=1)
-        assert "result" in results
 ```
 
-## 📋 Best Practices
+### Caching
 
-### Security Best Practices
+```python
+from functools import lru_cache
 
-1. **Token Storage**: Store tokens securely, never in plain text
-   ```python
-   import keyring
-   
-   # Store token securely
-   keyring.set_password("mcp-slack-chatter", "access_token", token)
-   
-   # Retrieve token
-   token = keyring.get_password("mcp-slack-chatter", "access_token")
-   ```
+@lru_cache(maxsize=100)
+def cached_search_results(query: str, top_k: int):
+    # Cache frequent searches
+    return search_results
+```
 
-2. **Token Rotation**: Implement automatic token refresh
-   ```python
-   async def ensure_valid_token(self):
-       if not self.is_token_valid():
-           await self.authenticate()
-   ```
+### Rate Limiting
 
-3. **Scope Limitation**: Request only required scopes
-   ```python
-   # Good: Specific scopes
-   scope = "mcp:search"
-   
-   # Bad: All scopes
-   scope = "mcp:search mcp:channels mcp:stats"
-   ```
+```python
+import asyncio
+from asyncio import Semaphore
 
-### Performance Best Practices
+# Limit concurrent requests
+semaphore = Semaphore(5)
 
-1. **Connection Pooling**: Reuse HTTP connections
-   ```python
-   # Use session for multiple requests
-   async with httpx.AsyncClient() as session:
-       for query in queries:
-           await make_request(session, query)
-   ```
+async def rate_limited_request(client, data):
+    async with semaphore:
+        return await client._make_request("search", data)
+```
 
-2. **Request Batching**: Batch multiple searches when possible
-   ```python
-   async def batch_search(queries):
-       tasks = [client.search_messages(q) for q in queries]
-       return await asyncio.gather(*tasks)
-   ```
+## 🔒 Security Best Practices
 
-3. **Caching**: Cache frequent requests
-   ```python
-   from functools import lru_cache
-   
-   @lru_cache(maxsize=100)
-   async def cached_search(query):
-       return await client.search_messages(query)
-   ```
+### Production Security
 
-### Integration Best Practices
+1. **API Key Management**
+   - Store securely (environment variables, key management systems)
+   - Rotate regularly
+   - Use different keys for different environments
 
-1. **Graceful Degradation**: Handle service unavailability
-   ```python
-   try:
-       results = await client.search_messages(query)
-   except MCPError:
-       # Fallback to alternative search
-       results = await fallback_search(query)
-   ```
+2. **Session Security**
+   - Sessions expire after 24 hours
+   - Use HTTPS in production
+   - Validate session IDs
 
-2. **Rate Limiting**: Respect API limits
-   ```python
-   import asyncio
-   from asyncio import Semaphore
-   
-   # Limit concurrent requests
-   semaphore = Semaphore(5)
-   
-   async def rate_limited_search(query):
-       async with semaphore:
-           return await client.search_messages(query)
-   ```
+3. **Input Validation**
+   - All query parameters are validated
+   - JSON-RPC format is enforced
+   - Request size limits are implemented
 
-3. **Monitoring**: Log requests and responses
-   ```python
-   import logging
-   
-   logger = logging.getLogger(__name__)
-   
-   async def logged_search(query):
-       logger.info(f"Searching for: {query}")
-       try:
-           result = await client.search_messages(query)
-           logger.info(f"Found {len(result.get('result', {}).get('messages', []))} messages")
-           return result
-       except Exception as e:
-           logger.error(f"Search failed: {e}")
-           raise
-   ```
+4. **Network Security**
+   - Enable CORS for specific origins only
+   - Use firewall rules to restrict access
+   - Implement rate limiting
 
-## 🔍 Production Deployment Checklist
+### Development Security
 
-### Environment Setup
-- [ ] All environment variables configured
-- [ ] OAuth client registered with proper redirect URIs
-- [ ] HTTPS enabled for production
-- [ ] CORS configured for client domains
+1. **Environment Variables**
+   - Never commit secrets to version control
+   - Use `.env` files for local development
+   - Use different keys for development/production
+
+2. **API Key Exposure**
+   - Remove `/dev/api-key` endpoint in production
+   - Log API key usage for monitoring
+   - Implement key rotation strategies
+
+## 🎯 Deployment Mode Comparison
+
+| Feature | Local MCP (stdio) | MCP Streamable HTTP |
+|---------|-------------------|---------------------|
+| **Transport** | stdin/stdout | HTTP/HTTPS |
+| **Authentication** | None | API keys/OAuth |
+| **Session Management** | None | Header-based |
+| **Deployment** | No server needed | Web server required |
+| **Scalability** | Single process | Multi-client |
+| **Network** | Local only | Remote access |
+| **Protocol** | JSON-RPC over stdio | JSON-RPC over HTTP |
+| **Best For** | Development, MCP clients | Production, web apps |
+
+## 📋 Production Checklist
+
+### Pre-Deployment
+- [ ] Environment variables configured
+- [ ] API keys generated and secured
+- [ ] HTTPS enabled
+- [ ] CORS configured for production domains
 - [ ] Rate limiting implemented
+- [ ] Session management configured
 
-### Security Configuration
-- [ ] Client secrets stored securely
-- [ ] Token expiration properly configured
-- [ ] Scopes limited to minimum required
-- [ ] Input validation implemented
-- [ ] Audit logging enabled
+### Post-Deployment
+- [ ] Health checks passing
+- [ ] API key accessible via secure method
+- [ ] Session creation working
+- [ ] All MCP tools responding
+- [ ] Error handling working correctly
+- [ ] Performance metrics acceptable
 
-### Monitoring & Observability
-- [ ] Health checks implemented
-- [ ] Metrics collection enabled
-- [ ] Error tracking configured
-- [ ] Performance monitoring set up
-- [ ] Log aggregation configured
+### Monitoring
+- [ ] Request/response logging enabled
+- [ ] Error rate monitoring
+- [ ] API key usage tracking
+- [ ] Session lifecycle monitoring
+- [ ] Performance metrics collection
 
-### Testing & Validation
-- [ ] Unit tests passing
-- [ ] Integration tests passing
-- [ ] Load testing completed
-- [ ] Security testing performed
-- [ ] Documentation validated
-
-The MCP deployment guide now provides comprehensive coverage of deployment, integration, authentication, error handling, testing, and best practices for both local stdio and remote OAuth 2.1 deployment options. 
+The MCP Streamable HTTP deployment guide provides comprehensive coverage of the new March 2025 standard with clear client implementation examples and security best practices. 

@@ -54,12 +54,12 @@ class SlackChatterOrchestrator:
             sys.exit(1)
     
     async def run_mcp_remote_server(self):
-        """Run MCP Remote Protocol server with OAuth 2.1 and SSE"""
-        print("🚀 Starting MCP Remote Protocol Server")
+        """Run MCP Streamable HTTP server (March 2025 Standard)"""
+        print("🚀 Starting MCP Streamable HTTP Server")
         print("=" * 60)
-        print("🔒 OAuth 2.1 authentication enabled")
-        print("⚡ Server-Sent Events (SSE) communication")
-        print("🌐 Official MCP Remote Protocol implementation")
+        print("🔄 Single endpoint supporting GET & POST")
+        print("🆔 Session management via headers (mcp-session-id)")
+        print("🌐 MCP Streamable HTTP Standard (March 2025)")
         print("=" * 60)
         
         try:

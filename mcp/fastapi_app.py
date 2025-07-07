@@ -1,6 +1,6 @@
 """
-FastAPI application for Official MCP Remote Protocol
-Implements OAuth 2.1 authentication and SSE communication
+FastAPI application for MCP Streamable HTTP Standard (March 2025)
+Implements single endpoint with session headers and simplified authentication
 """
 
 import asyncio
@@ -9,22 +9,18 @@ import logging
 from typing import Dict, List, Optional
 from urllib.parse import unquote
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends, Query, Form
-from fastapi.responses import StreamingResponse, JSONResponse, HTMLResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import FastAPI, Request, Response, HTTPException, Header, Query
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from sse_starlette import EventSourceResponse
 import secrets
-import base64
-import hashlib
 
-from mcp.server import MCPRemoteServer, create_mcp_remote_server
+from mcp.server import MCPStreamableHTTPServer, create_mcp_streamable_server
 
 
 app = FastAPI(
-    title="MCP Remote Protocol Server",
-    description="Official MCP Remote Protocol with OAuth 2.1 and SSE",
-    version="1.0.0",
+    title="MCP Streamable HTTP Server",
+    description="MCP Streamable HTTP Standard (March 2025) - Single endpoint with session headers",
+    version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -34,231 +30,150 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure appropriately for production
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
-# Global MCP remote server instance
-mcp_remote_server: Optional[MCPRemoteServer] = None
-security = HTTPBearer()
-
-def get_authorization_header(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    """Extract and validate authorization header"""
-    return f"Bearer {credentials.credentials}"
-
-
-# Global variable to store the search service
+# Global MCP streamable server instance
+mcp_streamable_server: Optional[MCPStreamableHTTPServer] = None
 _search_service = None
 
+
 def set_search_service(search_service):
-    """Set the search service for the MCP remote server"""
+    """Set the search service for the MCP server"""
     global _search_service
     _search_service = search_service
 
+
 @app.on_event("startup")
 async def startup_event():
-    """Initialize the MCP remote server on startup"""
-    global mcp_remote_server
+    """Initialize the MCP streamable server on startup"""
+    global mcp_streamable_server
     
-    # Create MCP remote server with the configured search service
-    mcp_remote_server = create_mcp_remote_server(search_service=_search_service)
+    # Create MCP streamable server with the configured search service
+    mcp_streamable_server = create_mcp_streamable_server(search_service=_search_service)
     
-    logging.info("MCP Remote Protocol Server started")
+    logging.info("MCP Streamable HTTP Server (March 2025 Standard) started")
 
 
 @app.get("/")
 async def root():
     """Root endpoint with information about the MCP server"""
     return {
-        "message": "MCP Remote Protocol Server",
-        "version": "1.0.0",
-        "protocol": "MCP Remote with OAuth 2.1 and SSE",
+        "message": "MCP Streamable HTTP Server",
+        "version": "2.0.0",
+        "standard": "MCP Streamable HTTP (March 2025)",
+        "features": [
+            "Single endpoint supporting both GET and POST",
+            "Session management via headers (mcp-session-id)",
+            "JSON-RPC protocol compliance",
+            "Bidirectional communication",
+            "Authentication support (API keys, OAuth tokens)"
+        ],
         "endpoints": {
-            "oauth_discovery": "/.well-known/oauth-authorization-server",
-            "authorization": "/oauth/authorize",
-            "token": "/oauth/token",
-            "mcp_sse": "/mcp/sse",
-            "mcp_request": "/mcp/request",
-            "session_info": "/mcp/session"
+            "mcp": "/mcp (GET & POST)",
+            "health": "/health",
+            "session": "/session/{session_id}",
+            "docs": "/docs"
+        },
+        "authentication": {
+            "header": "Authorization: Bearer {api_key_or_oauth_token}",
+            "session_header": "mcp-session-id: {session_id}",
+            "api_key_format": "mcp_key_...",
+            "oauth_token_format": "oauth_..."
         }
     }
 
 
-@app.get("/.well-known/oauth-authorization-server")
-async def oauth_discovery():
-    """OAuth 2.1 discovery endpoint"""
-    if not mcp_remote_server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
-    
-    return mcp_remote_server.get_oauth_discovery()
-
-
-@app.get("/oauth/authorize")
-async def oauth_authorize(
-    response_type: str = Query(..., description="Must be 'code'"),
-    client_id: str = Query(..., description="OAuth client ID"),
-    redirect_uri: str = Query(..., description="Redirect URI"),
-    scope: str = Query(..., description="Space-separated scopes"),
-    state: str = Query(..., description="State parameter"),
-    code_challenge: str = Query(..., description="PKCE code challenge"),
-    code_challenge_method: str = Query(..., description="PKCE challenge method")
-):
-    """
-    OAuth 2.1 authorization endpoint
-    For development/testing, this returns the authorization code directly
-    In production, this would show a user consent screen
-    """
-    if not mcp_remote_server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
-    
-    # Validate response type
-    if response_type != "code":
-        raise HTTPException(status_code=400, detail="Invalid response_type")
-    
-    try:
-        # Parse scopes
-        scopes = scope.split()
-        
-        # Start authorization flow
-        auth_result = await mcp_remote_server.start_authorization(
-            client_id=client_id,
-            redirect_uri=redirect_uri,
-            state=state,
-            scopes=scopes,
-            code_challenge=code_challenge,
-            code_challenge_method=code_challenge_method
-        )
-        
-        # For testing, return the authorization code directly
-        # In production, this would redirect to a consent screen
-        return HTMLResponse(content=f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>MCP Authorization</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 40px; }}
-                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
-                .code-box {{ background: #f0f0f0; padding: 15px; border-radius: 5px; font-family: monospace; }}
-                .btn {{ background: #007bff; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <h1>MCP Authorization</h1>
-                <p>Authorization requested for client: <strong>{client_id}</strong></p>
-                <p>Scopes: <strong>{', '.join(scopes)}</strong></p>
-                <p>Your authorization code (for testing):</p>
-                <div class="code-box">{auth_result['code']}</div>
-                <p>In production, you would be redirected to: <code>{redirect_uri}</code></p>
-                <button class="btn" onclick="copyToClipboard()">Copy Code</button>
-            </div>
-            <script>
-                function copyToClipboard() {{
-                    navigator.clipboard.writeText('{auth_result['code']}');
-                    alert('Authorization code copied to clipboard!');
-                }}
-            </script>
-        </body>
-        </html>
-        """)
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.post("/oauth/token")
-async def oauth_token(
-    grant_type: str = Form(..., description="Must be 'authorization_code'"),
-    code: str = Form(..., description="Authorization code"),
-    redirect_uri: str = Form(..., description="Redirect URI"),
-    client_id: str = Form(..., description="OAuth client ID"),
-    client_secret: str = Form(..., description="OAuth client secret"),
-    code_verifier: str = Form(..., description="PKCE code verifier")
-):
-    """OAuth 2.1 token endpoint"""
-    if not mcp_remote_server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
-    
-    # Validate grant type
-    if grant_type != "authorization_code":
-        raise HTTPException(status_code=400, detail="Invalid grant_type")
-    
-    try:
-        # Exchange code for token
-        token_result = await mcp_remote_server.exchange_code_for_token(
-            client_id=client_id,
-            client_secret=client_secret,
-            code=code,
-            redirect_uri=redirect_uri,
-            code_verifier=code_verifier
-        )
-        
-        return token_result
-        
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@app.get("/mcp/sse")
-async def mcp_sse_endpoint(authorization: str = Depends(get_authorization_header)):
-    """
-    MCP communication over Server-Sent Events
-    Handles real-time bidirectional communication
-    """
-    if not mcp_remote_server:
-        raise HTTPException(status_code=503, detail="Server not initialized")
-    
-    async def event_generator():
-        """Generate SSE events for MCP communication"""
-        try:
-            async for event in mcp_remote_server.handle_mcp_sse(authorization):
-                yield event
-        except Exception as e:
-            logging.error(f"SSE error: {str(e)}")
-            yield f"data: {json.dumps({'error': str(e)})}\n\n"
-    
-    return EventSourceResponse(event_generator())
-
-
-@app.post("/mcp/request")
-async def mcp_request_endpoint(
+@app.get("/mcp")
+@app.post("/mcp")
+async def mcp_endpoint(
     request: Request,
-    authorization: str = Depends(get_authorization_header)
+    mcp_session_id: Optional[str] = Header(None, alias="mcp-session-id"),
+    authorization: Optional[str] = Header(None),
+    method: Optional[str] = Query(None, description="MCP method for GET requests"),
+    **query_params
 ):
     """
-    Direct MCP JSON-RPC request endpoint
-    Alternative to SSE for single request/response
+    Single MCP endpoint supporting both GET and POST (March 2025 Standard)
+    
+    GET: Query parameters are converted to JSON-RPC
+    POST: Request body should contain JSON-RPC
+    
+    Headers:
+    - mcp-session-id: Session identifier for authenticated sessions
+    - Authorization: Bearer token for authentication (API key or OAuth token)
     """
-    if not mcp_remote_server:
+    if not mcp_streamable_server:
         raise HTTPException(status_code=503, detail="Server not initialized")
     
     try:
-        # Parse request body
-        request_data = await request.json()
+        # Prepare headers dict
+        headers = {}
+        if mcp_session_id:
+            headers["mcp-session-id"] = mcp_session_id
+        if authorization:
+            headers["authorization"] = authorization
         
-        # Handle the MCP request
-        response = await mcp_remote_server.handle_mcp_request(authorization, request_data)
+        # Get HTTP method
+        http_method = request.method
+        
+        # Handle request based on method
+        if http_method == "POST":
+            # POST: Parse JSON-RPC from body
+            body = await request.body()
+            body_str = body.decode('utf-8') if body else None
+            
+            response = await mcp_streamable_server.handle_mcp_request(
+                method=http_method,
+                headers=headers,
+                body=body_str,
+                query_params=None
+            )
+        
+        elif http_method == "GET":
+            # GET: Convert query params to JSON-RPC
+            # Remove FastAPI internal params
+            filtered_params = {k: v for k, v in query_params.items() 
+                             if not k.startswith('_') and v is not None}
+            
+            response = await mcp_streamable_server.handle_mcp_request(
+                method=http_method,
+                headers=headers,
+                body=None,
+                query_params=filtered_params
+            )
+        
+        else:
+            raise HTTPException(status_code=405, detail="Method not allowed")
+        
+        # Add session header to response if session was created/updated
+        if response and "session_info" in response:
+            session_id = response["session_info"]["session_id"]
+            return JSONResponse(
+                content=response,
+                headers={"mcp-session-id": session_id}
+            )
         
         return response
         
     except json.JSONDecodeError:
-        raise HTTPException(status_code=400, detail="Invalid JSON")
+        raise HTTPException(status_code=400, detail="Invalid JSON in request body")
     except Exception as e:
-        logging.error(f"MCP request error: {str(e)}")
+        logging.error(f"MCP endpoint error: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/mcp/session")
-async def mcp_session_info(authorization: str = Depends(get_authorization_header)):
-    """Get information about the current MCP session"""
-    if not mcp_remote_server:
+@app.get("/session/{session_id}")
+async def get_session_info(session_id: str):
+    """Get information about a specific session"""
+    if not mcp_streamable_server:
         raise HTTPException(status_code=503, detail="Server not initialized")
     
-    session_info = mcp_remote_server.get_session_info(authorization)
+    session_info = mcp_streamable_server.get_session_info(session_id)
     
     if "error" in session_info:
-        raise HTTPException(status_code=401, detail=session_info["error"])
+        raise HTTPException(status_code=404, detail=session_info["error"])
     
     return session_info
 
@@ -266,67 +181,155 @@ async def mcp_session_info(authorization: str = Depends(get_authorization_header
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    if not mcp_remote_server:
+    if not mcp_streamable_server:
         return {"status": "unhealthy", "error": "Server not initialized"}
+    
+    server_info = mcp_streamable_server.get_server_info()
     
     return {
         "status": "healthy",
-        "server": "MCP Remote Protocol Server",
-        "version": "1.0.0",
-        "oauth_clients": len(mcp_remote_server.oauth_clients),
-        "active_sessions": len(mcp_remote_server.sessions)
+        "timestamp": "2025-01-01T00:00:00Z",  # Would be actual timestamp
+        **server_info
     }
 
 
-@app.get("/debug/oauth-clients")
-async def debug_oauth_clients():
-    """Debug endpoint to view OAuth clients (development only)"""
-    if not mcp_remote_server:
+@app.get("/info")
+async def server_info():
+    """Get detailed server information"""
+    if not mcp_streamable_server:
         raise HTTPException(status_code=503, detail="Server not initialized")
     
-    # Return client info without secrets
-    clients = {}
-    for client_id, client_data in mcp_remote_server.oauth_clients.items():
-        clients[client_id] = {
-            "name": client_data["name"],
-            "redirect_uris": client_data["redirect_uris"],
-            "scopes": client_data["scopes"]
+    return mcp_streamable_server.get_server_info()
+
+
+@app.get("/cleanup")
+async def cleanup_sessions():
+    """Cleanup expired sessions (admin endpoint)"""
+    if not mcp_streamable_server:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+    
+    mcp_streamable_server.cleanup_expired_sessions()
+    
+    return {"message": "Expired sessions cleaned up"}
+
+
+@app.get("/docs-example")
+async def api_docs_example():
+    """Example API usage documentation"""
+    examples = {
+        "authentication": {
+            "api_key": {
+                "description": "Use API key for authentication",
+                "example": {
+                    "curl": 'curl -X POST https://your-deployment.com/mcp -H "Authorization: Bearer mcp_key_..." -H "Content-Type: application/json" -d \'{"jsonrpc": "2.0", "method": "tools/list", "id": 1}\'',
+                    "headers": {
+                        "Authorization": "Bearer mcp_key_abcdef123456...",
+                        "Content-Type": "application/json"
+                    }
+                }
+            },
+            "session": {
+                "description": "Use session ID for subsequent requests",
+                "example": {
+                    "curl": 'curl -X GET "https://your-deployment.com/mcp?method=tools/list" -H "mcp-session-id: mcp_session_abc123"',
+                    "headers": {
+                        "mcp-session-id": "mcp_session_abc123"
+                    }
+                }
+            }
+        },
+        "requests": {
+            "post_search": {
+                "description": "POST request to search messages",
+                "method": "POST",
+                "url": "/mcp",
+                "headers": {
+                    "Authorization": "Bearer mcp_key_...",
+                    "Content-Type": "application/json"
+                },
+                "body": {
+                    "jsonrpc": "2.0",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "search_slack_messages",
+                        "arguments": {
+                            "query": "deployment issues",
+                            "top_k": 5
+                        }
+                    },
+                    "id": 1
+                }
+            },
+            "get_tools": {
+                "description": "GET request to list available tools",
+                "method": "GET",
+                "url": "/mcp?method=tools/list",
+                "headers": {
+                    "Authorization": "Bearer mcp_key_..."
+                }
+            },
+            "get_search": {
+                "description": "GET request to search (simplified)",
+                "method": "GET",
+                "url": "/mcp?method=tools/call&name=search_slack_messages&query=deployment&top_k=3",
+                "headers": {
+                    "Authorization": "Bearer mcp_key_..."
+                }
+            }
+        },
+        "responses": {
+            "success": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Found 3 messages matching 'deployment'..."
+                        }
+                    ]
+                },
+                "session_info": {
+                    "session_id": "mcp_session_abc123",
+                    "expires_at": "2025-01-02T00:00:00Z"
+                }
+            },
+            "error": {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "error": {
+                    "code": -32001,
+                    "message": "Authentication failed",
+                    "data": {
+                        "details": "Invalid API key"
+                    }
+                }
+            }
+        }
+    }
+    
+    return examples
+
+
+# Development helper endpoint
+@app.get("/dev/api-key")
+async def get_development_api_key():
+    """Get development API key (remove in production)"""
+    if not mcp_streamable_server:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+    
+    # Get the first API key (development key)
+    api_keys = list(mcp_streamable_server.api_keys.keys())
+    if api_keys:
+        return {
+            "api_key": api_keys[0],
+            "note": "This is for development only. Remove this endpoint in production.",
+            "usage": f"Authorization: Bearer {api_keys[0]}"
         }
     
-    return {"clients": clients}
-
-
-# Error handlers
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    """Handle HTTP exceptions"""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={"error": exc.detail}
-    )
-
-
-@app.exception_handler(Exception)
-async def general_exception_handler(request: Request, exc: Exception):
-    """Handle general exceptions"""
-    logging.error(f"Unhandled exception: {str(exc)}")
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal server error"}
-    )
+    return {"error": "No API keys available"}
 
 
 if __name__ == "__main__":
     import uvicorn
-    
-    # Configure logging
-    logging.basicConfig(level=logging.INFO)
-    
-    # Run the server
-    uvicorn.run(
-        "mcp.fastapi_app:app",
-        host="0.0.0.0",
-        port=8080,
-        log_level="info",
-        access_log=True
-    ) 
+    uvicorn.run(app, host="0.0.0.0", port=8080) 

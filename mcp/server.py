@@ -1,7 +1,7 @@
 """
 MCP (Model Context Protocol) Server Implementation
 - Pure MCP over stdio for local client connections
-- Official MCP Remote Protocol with OAuth 2.1 and SSE for remote access
+- New Streamable HTTP standard (March 2025) for remote access
 """
 
 import asyncio
@@ -13,8 +13,8 @@ import secrets
 from typing import Any, Dict, List, Optional, Union, AsyncGenerator
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
-import base64
 import hashlib
+import hmac
 
 from lib.config import config
 
@@ -211,7 +211,7 @@ class PureMCPServer:
                             "description": "Filter results by channel name"
                         },
                         "user_filter": {
-                            "type": "string", 
+                            "type": "string",
                             "description": "Filter results by user name"
                         },
                         "date_from": {
@@ -331,315 +331,260 @@ class PureMCPServer:
             }
             
         except Exception as e:
-            self.logger.error(f"Search failed: {str(e)}")
+            self.logger.error(f"Search error: {str(e)}")
             raise MCPJsonRpcError(-32603, "Search failed", {"details": str(e)})
     
     async def _handle_get_channels(self, arguments: Dict) -> Dict:
-        """Handle get channels requests"""
+        """Handle get channels request"""
         if not self.search_service:
             raise MCPJsonRpcError(-32603, "Search service not available")
         
         try:
             channels = await self.search_service.get_channels()
             
-            if not channels:
-                return {
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": "No channels found."
-                        }
-                    ]
-                }
-            
-            response_text = "Available Slack channels:\n\n"
-            for channel in channels:
-                response_text += f"- #{channel}\n"
+            channel_list = "\n".join([f"#{channel}" for channel in channels])
             
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": response_text
+                        "text": f"Available Slack channels:\n{channel_list}"
                     }
                 ]
             }
             
         except Exception as e:
-            self.logger.error(f"Get channels failed: {str(e)}")
-            raise MCPJsonRpcError(-32603, "Get channels failed", {"details": str(e)})
+            self.logger.error(f"Get channels error: {str(e)}")
+            raise MCPJsonRpcError(-32603, "Failed to get channels", {"details": str(e)})
     
     async def _handle_get_stats(self, arguments: Dict) -> Dict:
-        """Handle get stats requests"""
+        """Handle get stats request"""
         if not self.search_service:
             raise MCPJsonRpcError(-32603, "Search service not available")
         
         try:
             stats = await self.search_service.get_stats()
             
-            response_text = "Search Index Statistics:\n\n"
-            response_text += f"Total Messages: {stats.get('total_vectors', 0)}\n"
-            response_text += f"Channels Indexed: {stats.get('channels_indexed', 0)}\n"
-            response_text += f"Last Updated: {stats.get('last_refresh', 'Never')}\n"
-            response_text += f"Index Status: {stats.get('status', 'Unknown')}\n"
+            stats_text = f"""Slack Message Search Statistics:
+Total Messages: {stats.get('total_vectors', 0)}
+Channels Indexed: {stats.get('channels_indexed', 0)}
+Last Refresh: {stats.get('last_refresh', 'Unknown')}
+Index Status: {stats.get('status', 'Unknown')}
+"""
             
             return {
                 "content": [
                     {
                         "type": "text",
-                        "text": response_text
+                        "text": stats_text
                     }
                 ]
             }
             
         except Exception as e:
-            self.logger.error(f"Get stats failed: {str(e)}")
-            raise MCPJsonRpcError(-32603, "Get stats failed", {"details": str(e)})
+            self.logger.error(f"Get stats error: {str(e)}")
+            raise MCPJsonRpcError(-32603, "Failed to get stats", {"details": str(e)})
 
 
 @dataclass
 class MCPSession:
-    """Represents an authenticated MCP session"""
+    """Represents an MCP session with Streamable HTTP standard"""
     session_id: str
     user_id: str
-    access_token: str
+    created_at: datetime
     expires_at: datetime
     scopes: List[str]
-    mcp_server: PureMCPServer
+    api_key: Optional[str] = None
+    oauth_token: Optional[str] = None
+    mcp_server: Optional[PureMCPServer] = None
 
 
-class MCPRemoteServer:
+class MCPStreamableHTTPServer:
     """
-    Official MCP Remote Protocol Implementation
-    Uses OAuth 2.1 for authentication and SSE for communication
+    MCP Streamable HTTP Server Implementation (March 2025 Standard)
+    
+    Features:
+    - Single endpoint supporting both GET and POST
+    - Session management via headers (mcp-session-id)
+    - JSON-RPC protocol compliance
+    - Bidirectional communication
+    - Authentication support (OAuth, API keys)
     """
     
     def __init__(self, search_service=None):
         self.search_service = search_service
         self.logger = logging.getLogger(__name__)
         self.sessions: Dict[str, MCPSession] = {}
-        self.oauth_clients: Dict[str, Dict] = {}
-        self.authorization_codes: Dict[str, Dict] = {}
+        self.api_keys: Dict[str, Dict] = {}
+        self.oauth_tokens: Dict[str, Dict] = {}
         
-        # OAuth 2.1 Configuration
-        self.oauth_config = {
-            "authorization_endpoint": "/oauth/authorize",
-            "token_endpoint": "/oauth/token",
-            "scopes_supported": ["mcp:search", "mcp:channels", "mcp:stats"],
-            "response_types_supported": ["code"],
-            "grant_types_supported": ["authorization_code"],
-            "code_challenge_methods_supported": ["S256"]
+        # Server configuration
+        self.server_config = {
+            "name": config.mcp_server_name,
+            "version": config.mcp_server_version,
+            "protocol": "MCP Streamable HTTP",
+            "standard_version": "2025-03"
         }
         
-        # Register default OAuth client for testing
-        self._register_default_client()
+        # Generate default API key for development
+        self._generate_default_api_key()
     
-    def _register_default_client(self):
-        """Register a default OAuth client for development/testing"""
-        client_id = "mcp-slack-chatter-client"
-        client_secret = secrets.token_urlsafe(32)
-        
-        self.oauth_clients[client_id] = {
-            "client_secret": client_secret,
-            "redirect_uris": [
-                "http://localhost:3000/callback",
-                "https://*.replit.app/callback",
-                "urn:ietf:wg:oauth:2.0:oob"  # Out-of-band for CLI clients
-            ],
+    def _generate_default_api_key(self):
+        """Generate a default API key for development"""
+        api_key = f"mcp_key_{secrets.token_urlsafe(32)}"
+        self.api_keys[api_key] = {
+            "name": "Default Development Key",
             "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
-            "name": "Slack Chatter MCP Client"
+            "created_at": datetime.utcnow(),
+            "expires_at": datetime.utcnow() + timedelta(days=365)
         }
         
-        self.logger.info(f"Default OAuth client registered: {client_id}")
-        self.logger.info(f"Client secret: {client_secret}")
+        self.logger.info(f"Default API key generated: {api_key}")
+        return api_key
     
-    def _generate_pkce_challenge(self, verifier: str) -> str:
-        """Generate PKCE challenge from verifier"""
-        digest = hashlib.sha256(verifier.encode('utf-8')).digest()
-        return base64.urlsafe_b64encode(digest).decode('utf-8').rstrip('=')
-    
-    async def start_authorization(self, client_id: str, redirect_uri: str, 
-                                state: str, scopes: List[str], 
-                                code_challenge: str, code_challenge_method: str) -> Dict:
-        """Start OAuth 2.1 authorization flow"""
-        if client_id not in self.oauth_clients:
-            raise ValueError("Invalid client_id")
+    def _create_session(self, user_id: str, scopes: List[str], 
+                       api_key: Optional[str] = None, 
+                       oauth_token: Optional[str] = None) -> MCPSession:
+        """Create a new MCP session"""
+        session_id = f"mcp_session_{secrets.token_urlsafe(16)}"
         
-        client = self.oauth_clients[client_id]
-        
-        # Validate redirect URI
-        if redirect_uri not in client["redirect_uris"]:
-            raise ValueError("Invalid redirect_uri")
-        
-        # Validate scopes
-        invalid_scopes = set(scopes) - set(client["scopes"])
-        if invalid_scopes:
-            raise ValueError(f"Invalid scopes: {invalid_scopes}")
-        
-        # Validate PKCE
-        if code_challenge_method != "S256":
-            raise ValueError("Only S256 code challenge method supported")
-        
-        # Generate authorization code
-        auth_code = secrets.token_urlsafe(32)
-        
-        self.authorization_codes[auth_code] = {
-            "client_id": client_id,
-            "redirect_uri": redirect_uri,
-            "scopes": scopes,
-            "code_challenge": code_challenge,
-            "expires_at": datetime.utcnow() + timedelta(minutes=10),
-            "used": False
-        }
-        
-        return {
-            "authorization_url": f"/oauth/authorize?response_type=code&client_id={client_id}&redirect_uri={redirect_uri}&state={state}&scope={'+'.join(scopes)}&code_challenge={code_challenge}&code_challenge_method={code_challenge_method}",
-            "code": auth_code  # For testing - normally user would authorize via UI
-        }
-    
-    async def exchange_code_for_token(self, client_id: str, client_secret: str,
-                                    code: str, redirect_uri: str, 
-                                    code_verifier: str) -> Dict:
-        """Exchange authorization code for access token"""
-        if client_id not in self.oauth_clients:
-            raise ValueError("Invalid client_id")
-        
-        client = self.oauth_clients[client_id]
-        if client["client_secret"] != client_secret:
-            raise ValueError("Invalid client_secret")
-        
-        if code not in self.authorization_codes:
-            raise ValueError("Invalid authorization code")
-        
-        auth_data = self.authorization_codes[code]
-        
-        # Validate code hasn't expired or been used
-        if auth_data["used"] or datetime.utcnow() > auth_data["expires_at"]:
-            raise ValueError("Authorization code expired or already used")
-        
-        # Validate PKCE
-        expected_challenge = self._generate_pkce_challenge(code_verifier)
-        if auth_data["code_challenge"] != expected_challenge:
-            raise ValueError("Invalid code_verifier")
-        
-        # Validate redirect URI
-        if auth_data["redirect_uri"] != redirect_uri:
-            raise ValueError("Redirect URI mismatch")
-        
-        # Mark code as used
-        auth_data["used"] = True
-        
-        # Generate access token
-        access_token = secrets.token_urlsafe(32)
-        user_id = f"user_{secrets.token_urlsafe(8)}"  # Generate unique user ID
-        
-        # Create session
-        session_id = str(uuid.uuid4())
         session = MCPSession(
             session_id=session_id,
             user_id=user_id,
-            access_token=access_token,
+            created_at=datetime.utcnow(),
             expires_at=datetime.utcnow() + timedelta(hours=24),
-            scopes=auth_data["scopes"],
+            scopes=scopes,
+            api_key=api_key,
+            oauth_token=oauth_token,
             mcp_server=PureMCPServer(search_service=self.search_service)
         )
         
         self.sessions[session_id] = session
+        self.logger.info(f"Created session {session_id} for user {user_id}")
         
-        return {
-            "access_token": access_token,
-            "token_type": "Bearer",
-            "expires_in": 86400,  # 24 hours
-            "scope": " ".join(auth_data["scopes"]),
-            "session_id": session_id
-        }
+        return session
     
-    def _validate_token(self, authorization_header: str) -> MCPSession:
-        """Validate Bearer token and return session"""
-        if not authorization_header or not authorization_header.startswith("Bearer "):
-            raise ValueError("Missing or invalid authorization header")
+    def _validate_session(self, session_id: str) -> MCPSession:
+        """Validate and return session"""
+        if not session_id:
+            raise ValueError("Missing session ID")
         
-        token = authorization_header[7:]  # Remove "Bearer " prefix
+        session = self.sessions.get(session_id)
+        if not session:
+            raise ValueError("Invalid session ID")
         
-        # Find session with this token
-        for session in self.sessions.values():
-            if session.access_token == token:
-                if datetime.utcnow() > session.expires_at:
-                    raise ValueError("Token expired")
-                return session
+        if datetime.utcnow() > session.expires_at:
+            # Clean up expired session
+            del self.sessions[session_id]
+            raise ValueError("Session expired")
         
-        raise ValueError("Invalid token")
+        return session
     
-    async def handle_mcp_sse(self, authorization_header: str) -> AsyncGenerator[str, None]:
-        """Handle MCP communication over Server-Sent Events"""
-        try:
-            session = self._validate_token(authorization_header)
+    def _authenticate_request(self, headers: Dict[str, str]) -> MCPSession:
+        """Authenticate request and return session"""
+        # Check for existing session
+        session_id = headers.get("mcp-session-id")
+        if session_id:
+            try:
+                return self._validate_session(session_id)
+            except ValueError:
+                pass  # Continue to other auth methods
+        
+        # Check for API key authentication
+        api_key = headers.get("authorization")
+        if api_key and api_key.startswith("Bearer "):
+            api_key = api_key[7:]  # Remove "Bearer " prefix
             
-            # Initialize the MCP server for this session
-            if not session.mcp_server.initialized:
-                init_response = await session.mcp_server._handle_request({
+            if api_key.startswith("mcp_key_"):
+                # API key authentication
+                key_info = self.api_keys.get(api_key)
+                if key_info and datetime.utcnow() < key_info["expires_at"]:
+                    # Create session for API key
+                    return self._create_session(
+                        user_id=f"api_key_user_{secrets.token_urlsafe(8)}",
+                        scopes=key_info["scopes"],
+                        api_key=api_key
+                    )
+            
+            elif api_key.startswith("oauth_"):
+                # OAuth token authentication
+                token_info = self.oauth_tokens.get(api_key)
+                if token_info and datetime.utcnow() < token_info["expires_at"]:
+                    # Create session for OAuth token
+                    return self._create_session(
+                        user_id=token_info["user_id"],
+                        scopes=token_info["scopes"],
+                        oauth_token=api_key
+                    )
+        
+        # No valid authentication found
+        raise ValueError("Authentication required")
+    
+    async def handle_mcp_request(self, method: str, headers: Dict[str, str], 
+                               body: Optional[str] = None, 
+                               query_params: Optional[Dict] = None) -> Dict:
+        """
+        Handle MCP request via Streamable HTTP
+        
+        Args:
+            method: HTTP method (GET or POST)
+            headers: Request headers
+            body: Request body (for POST)
+            query_params: Query parameters (for GET)
+        
+        Returns:
+            JSON-RPC response
+        """
+        try:
+            # Authenticate request
+            session = self._authenticate_request(headers)
+            
+            # Parse request data
+            if method == "POST":
+                if not body:
+                    raise ValueError("POST request requires body")
+                
+                try:
+                    request_data = json.loads(body)
+                except json.JSONDecodeError:
+                    raise ValueError("Invalid JSON in request body")
+            
+            elif method == "GET":
+                # For GET requests, construct JSON-RPC from query params
+                mcp_method = query_params.get("method")
+                if not mcp_method:
+                    # Default to tools/list for GET requests
+                    mcp_method = "tools/list"
+                
+                request_data = {
                     "jsonrpc": "2.0",
-                    "method": "initialize",
-                    "params": {},
-                    "id": "sse_init"
-                })
-                
-                # Send initialization response
-                yield f"data: {json.dumps(init_response)}\n\n"
-            
-            # Keep connection alive and handle incoming requests
-            # In a real implementation, this would handle bidirectional communication
-            # For now, we'll send a heartbeat
-            while True:
-                yield f"data: {json.dumps({'type': 'heartbeat', 'timestamp': datetime.utcnow().isoformat()})}\n\n"
-                await asyncio.sleep(30)  # Heartbeat every 30 seconds
-                
-        except ValueError as e:
-            error_response = {
-                "jsonrpc": "2.0",
-                "error": {
-                    "code": -32001,
-                    "message": "Authentication failed",
-                    "data": {"details": str(e)}
+                    "method": mcp_method,
+                    "params": dict(query_params),
+                    "id": query_params.get("id", 1)
                 }
-            }
-            yield f"data: {json.dumps(error_response)}\n\n"
-        except Exception as e:
-            self.logger.error(f"SSE error: {str(e)}")
-            error_response = {
-                "jsonrpc": "2.0",
-                "error": {
-                    "code": -32603,
-                    "message": "Internal error",
-                    "data": {"details": str(e)}
-                }
-            }
-            yield f"data: {json.dumps(error_response)}\n\n"
-    
-    async def handle_mcp_request(self, authorization_header: str, request_data: Dict) -> Dict:
-        """Handle MCP JSON-RPC request with authentication"""
-        try:
-            session = self._validate_token(authorization_header)
             
-            # Check if the request requires specific scopes
-            method = request_data.get("method")
-            if method == "tools/call":
-                tool_name = request_data.get("params", {}).get("name")
-                if tool_name == "search_slack_messages" and "mcp:search" not in session.scopes:
-                    raise ValueError("Insufficient scope for search operation")
-                elif tool_name == "get_slack_channels" and "mcp:channels" not in session.scopes:
-                    raise ValueError("Insufficient scope for channels operation")
-                elif tool_name == "get_search_stats" and "mcp:stats" not in session.scopes:
-                    raise ValueError("Insufficient scope for stats operation")
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+            
+            # Validate scopes for the request
+            self._validate_request_scopes(request_data, session.scopes)
             
             # Process the request through the MCP server
             response = await session.mcp_server._handle_request(request_data)
+            
+            # Add session information to response
+            if response and "result" in response:
+                response["session_info"] = {
+                    "session_id": session.session_id,
+                    "expires_at": session.expires_at.isoformat()
+                }
+            
             return response
             
         except ValueError as e:
             return {
                 "jsonrpc": "2.0",
-                "id": request_data.get("id"),
+                "id": None,
                 "error": {
                     "code": -32001,
                     "message": "Authentication failed",
@@ -650,7 +595,7 @@ class MCPRemoteServer:
             self.logger.error(f"MCP request error: {str(e)}")
             return {
                 "jsonrpc": "2.0",
-                "id": request_data.get("id"),
+                "id": None,
                 "error": {
                     "code": -32603,
                     "message": "Internal error",
@@ -658,31 +603,65 @@ class MCPRemoteServer:
                 }
             }
     
-    def get_oauth_discovery(self) -> Dict:
-        """Return OAuth 2.1 discovery information"""
+    def _validate_request_scopes(self, request_data: Dict, session_scopes: List[str]):
+        """Validate that the session has required scopes for the request"""
+        method = request_data.get("method")
+        
+        if method == "tools/call":
+            tool_name = request_data.get("params", {}).get("name")
+            
+            if tool_name == "search_slack_messages" and "mcp:search" not in session_scopes:
+                raise ValueError("Insufficient scope: mcp:search required")
+            elif tool_name == "get_slack_channels" and "mcp:channels" not in session_scopes:
+                raise ValueError("Insufficient scope: mcp:channels required")
+            elif tool_name == "get_search_stats" and "mcp:stats" not in session_scopes:
+                raise ValueError("Insufficient scope: mcp:stats required")
+    
+    def get_server_info(self) -> Dict:
+        """Get server information"""
         return {
-            "issuer": "https://your-mcp-server.replit.app",
-            "authorization_endpoint": f"https://your-mcp-server.replit.app{self.oauth_config['authorization_endpoint']}",
-            "token_endpoint": f"https://your-mcp-server.replit.app{self.oauth_config['token_endpoint']}",
-            "scopes_supported": self.oauth_config["scopes_supported"],
-            "response_types_supported": self.oauth_config["response_types_supported"],
-            "grant_types_supported": self.oauth_config["grant_types_supported"],
-            "code_challenge_methods_supported": self.oauth_config["code_challenge_methods_supported"]
+            **self.server_config,
+            "endpoints": {
+                "mcp": "/mcp",
+                "health": "/health",
+                "session": "/session"
+            },
+            "authentication": {
+                "methods": ["api_key", "oauth_token"],
+                "scopes": ["mcp:search", "mcp:channels", "mcp:stats"]
+            },
+            "active_sessions": len(self.sessions)
         }
     
-    def get_session_info(self, authorization_header: str) -> Dict:
-        """Get information about the current session"""
+    def get_session_info(self, session_id: str) -> Dict:
+        """Get information about a specific session"""
         try:
-            session = self._validate_token(authorization_header)
+            session = self._validate_session(session_id)
             return {
                 "session_id": session.session_id,
                 "user_id": session.user_id,
-                "scopes": session.scopes,
+                "created_at": session.created_at.isoformat(),
                 "expires_at": session.expires_at.isoformat(),
-                "server_info": session.mcp_server.server_info
+                "scopes": session.scopes,
+                "authentication_method": "api_key" if session.api_key else "oauth_token"
             }
         except ValueError as e:
             return {"error": str(e)}
+    
+    def cleanup_expired_sessions(self):
+        """Clean up expired sessions"""
+        now = datetime.utcnow()
+        expired_sessions = [
+            session_id for session_id, session in self.sessions.items()
+            if now > session.expires_at
+        ]
+        
+        for session_id in expired_sessions:
+            del self.sessions[session_id]
+            self.logger.info(f"Cleaned up expired session {session_id}")
+        
+        if expired_sessions:
+            self.logger.info(f"Cleaned up {len(expired_sessions)} expired sessions")
 
 
 # Factory functions
@@ -691,6 +670,12 @@ def create_mcp_server(search_service=None):
     return PureMCPServer(search_service=search_service)
 
 
+def create_mcp_streamable_server(search_service=None):
+    """Create an MCP Streamable HTTP server (March 2025 Standard)"""
+    return MCPStreamableHTTPServer(search_service=search_service)
+
+
+# Legacy alias for backward compatibility during transition
 def create_mcp_remote_server(search_service=None):
-    """Create an MCP remote server with OAuth 2.1 and SSE"""
-    return MCPRemoteServer(search_service=search_service) 
+    """Create an MCP remote server (legacy alias)"""
+    return create_mcp_streamable_server(search_service=search_service) 

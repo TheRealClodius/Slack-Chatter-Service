@@ -5,15 +5,15 @@
 The Slack Chatter Service has multiple deployment modes:
 1. **Ingestion Worker** - Runs 24/7 to keep embeddings fresh (needs deployment)
 2. **MCP Tool (Local)** - Invoked on-demand by clients via stdio (no deployment needed)
-3. **MCP Remote Protocol** - OAuth 2.1 + SSE server for remote access (optional deployment)
+3. **MCP Streamable HTTP** - Single endpoint with session headers for remote access (March 2025 Standard)
 
 ## Deployment Modes
 
 ### Mode 1: Ingestion Worker Only
 Deploy only the background worker to keep embeddings fresh. Clients use local MCP stdio access.
 
-### Mode 2: Full Remote MCP Server
-Deploy both ingestion worker AND MCP Remote Protocol server for OAuth 2.1 authenticated remote access.
+### Mode 2: MCP Streamable HTTP Server
+Deploy both ingestion worker AND MCP Streamable HTTP server for modern remote access with session management.
 
 ### Mode 3: Combined Deployment
 Single deployment running both components together.
@@ -40,6 +40,207 @@ NOTION_INTEGRATION_SECRET=secret_your-notion-integration-secret-here
 NOTION_DATABASE_ID=your-notion-database-id-here
 ```
 
+## MCP Streamable HTTP Standard (March 2025)
+
+The service now implements the **latest MCP Streamable HTTP standard** with these features:
+
+### ✨ Key Features
+- **Single endpoint** (`/mcp`) supporting both GET and POST requests
+- **Session management** via `mcp-session-id` headers
+- **JSON-RPC protocol** compliance
+- **Bidirectional communication**
+- **Authentication support** (API keys, OAuth tokens)
+
+### 🔗 Client Configuration Examples
+
+#### For MCP-Compatible AI Agents
+
+**Claude Desktop (Local MCP):**
+```json
+{
+  "mcpServers": {
+    "slack-chatter": {
+      "command": "slack-chatter",
+      "args": ["mcp"],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-your-token",
+        "OPENAI_API_KEY": "sk-your-key",
+        "PINECONE_API_KEY": "your-pinecone-key",
+        "PINECONE_ENVIRONMENT": "us-west1-gcp",
+        "NOTION_INTEGRATION_SECRET": "your-notion-secret",
+        "NOTION_DATABASE_ID": "your-database-id",
+        "SLACK_CHANNELS": "C1234567890,C0987654321"
+      }
+    }
+  }
+}
+```
+
+**Remote MCP (Streamable HTTP):**
+```json
+{
+  "mcpServers": {
+    "slack-chatter-remote": {
+      "transport": "http",
+      "endpoint": "https://your-deployment.com/mcp",
+      "authentication": {
+        "type": "bearer",
+        "token": "mcp_key_your_api_key_here"
+      },
+      "options": {
+        "standard": "streamable-http-2025",
+        "session_management": true
+      }
+    }
+  }
+}
+```
+
+#### For Custom Applications
+
+**Python Client Example:**
+```python
+import httpx
+import json
+
+class MCPStreamableClient:
+    def __init__(self, base_url: str, api_key: str):
+        self.base_url = base_url
+        self.api_key = api_key
+        self.session_id = None
+        
+    async def search_messages(self, query: str, top_k: int = 10):
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        if self.session_id:
+            headers["mcp-session-id"] = self.session_id
+            
+        request_data = {
+            "jsonrpc": "2.0",
+            "method": "tools/call",
+            "params": {
+                "name": "search_slack_messages",
+                "arguments": {"query": query, "top_k": top_k}
+            },
+            "id": 1
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{self.base_url}/mcp",
+                json=request_data,
+                headers=headers
+            )
+            
+            # Extract session ID from response headers
+            if "mcp-session-id" in response.headers:
+                self.session_id = response.headers["mcp-session-id"]
+            
+            return response.json()
+
+# Usage
+client = MCPStreamableClient(
+    base_url="https://your-deployment.com",
+    api_key="mcp_key_your_api_key_here"
+)
+
+results = await client.search_messages("deployment issues")
+```
+
+**JavaScript/Node.js Client Example:**
+```javascript
+class MCPStreamableClient {
+    constructor(baseUrl, apiKey) {
+        this.baseUrl = baseUrl;
+        this.apiKey = apiKey;
+        this.sessionId = null;
+    }
+    
+    async searchMessages(query, topK = 10) {
+        const headers = { 'Authorization': `Bearer ${this.apiKey}` };
+        if (this.sessionId) {
+            headers['mcp-session-id'] = this.sessionId;
+        }
+        
+        const requestData = {
+            jsonrpc: "2.0",
+            method: "tools/call",
+            params: {
+                name: "search_slack_messages",
+                arguments: { query, top_k: topK }
+            },
+            id: 1
+        };
+        
+        const response = await fetch(`${this.baseUrl}/mcp`, {
+            method: 'POST',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify(requestData)
+        });
+        
+        // Extract session ID from response headers
+        const sessionId = response.headers.get('mcp-session-id');
+        if (sessionId) {
+            this.sessionId = sessionId;
+        }
+        
+        return response.json();
+    }
+    
+    // Alternative: GET request (simplified)
+    async getTools() {
+        const headers = { 'Authorization': `Bearer ${this.apiKey}` };
+        if (this.sessionId) {
+            headers['mcp-session-id'] = this.sessionId;
+        }
+        
+        const response = await fetch(`${this.baseUrl}/mcp?method=tools/list`, {
+            headers
+        });
+        
+        return response.json();
+    }
+}
+
+// Usage
+const client = new MCPStreamableClient(
+    'https://your-deployment.com',
+    'mcp_key_your_api_key_here'
+);
+
+const results = await client.searchMessages('deployment issues');
+```
+
+**cURL Examples:**
+```bash
+# Get API key (development only)
+curl https://your-deployment.com/dev/api-key
+
+# POST request to search messages
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer mcp_key_your_api_key_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "tools/call",
+    "params": {
+      "name": "search_slack_messages",
+      "arguments": {
+        "query": "deployment issues",
+        "top_k": 5
+      }
+    },
+    "id": 1
+  }'
+
+# GET request to list tools (simplified)
+curl "https://your-deployment.com/mcp?method=tools/list" \
+  -H "Authorization: Bearer mcp_key_your_api_key_here"
+
+# Using session ID for subsequent requests
+curl "https://your-deployment.com/mcp?method=tools/call&name=get_search_stats" \
+  -H "mcp-session-id: mcp_session_abc123"
+```
+
 ## Deployment Options
 
 ### Option 1: Replit (Easiest)
@@ -64,10 +265,10 @@ NOTION_DATABASE_ID=your-notion-database-id-here
    # Or manually: python main_orchestrator.py ingestion
    ```
 
-   **MCP Remote Protocol Server:**
+   **MCP Streamable HTTP Server:**
    ```bash
    python main_orchestrator.py remote
-   # Server runs on port 8080 with OAuth 2.1 + SSE
+   # Server runs on port 8080 with Streamable HTTP standard
    ```
 
    **Combined Mode:**
@@ -80,6 +281,12 @@ NOTION_DATABASE_ID=your-notion-database-id-here
    - Go to Repl settings
    - Enable "Always On" to keep it running 24/7
    - **Cost**: ~$5/month
+
+5. **Get your API key:**
+   ```bash
+   # Visit: https://your-repl-name.your-username.repl.co/dev/api-key
+   # Copy the API key for client authentication
+   ```
 
 **Replit Pros:**
 - Super simple setup (5 minutes)
@@ -99,13 +306,13 @@ NOTION_DATABASE_ID=your-notion-database-id-here
 5. **Set start command:** `python main_orchestrator.py ingestion`
 6. **Deploy automatically!**
 
-#### MCP Remote Protocol Server Deployment
+#### MCP Streamable HTTP Server Deployment
 
 1. **Create second Railway service in same project**
 2. **Set start command:** `python main_orchestrator.py remote`
 3. **Configure port:** Set `PORT=8080`
 4. **Add same environment variables**
-5. **Generate domain** for OAuth redirect URIs
+5. **Generate domain** for client access
 
 **Cost**: ~$5-15/month (depending on usage)
 
@@ -120,7 +327,7 @@ NOTION_DATABASE_ID=your-notion-database-id-here
 5. **Add environment variables**
 6. **Deploy!**
 
-#### Web Service (MCP Remote Protocol)
+#### Web Service (MCP Streamable HTTP)
 
 1. **Create New → Web Service**
 2. **Connect same GitHub repository**
@@ -175,7 +382,7 @@ services:
     command: ["python", "main_orchestrator.py", "ingestion"]
     restart: unless-stopped
 
-  mcp-remote-server:
+  mcp-streamable-server:
     build: .
     environment:
       - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
@@ -202,7 +409,7 @@ docker-compose up -d
 
 # Check logs
 docker-compose logs -f ingestion-worker
-docker-compose logs -f mcp-remote-server
+docker-compose logs -f mcp-streamable-server
 
 # Stop all services
 docker-compose down
@@ -238,7 +445,7 @@ export OPENAI_API_KEY="sk-..."
 # Option A: Ingestion worker only
 python main_orchestrator.py ingestion
 
-# Option B: MCP Remote Protocol server only  
+# Option B: MCP Streamable HTTP server only  
 python main_orchestrator.py remote
 
 # Option C: Combined mode
@@ -273,11 +480,11 @@ RestartSec=10
 WantedBy=multi-user.target
 ```
 
-**MCP Remote Protocol Server Service:**
+**MCP Streamable HTTP Server Service:**
 ```ini
-# /etc/systemd/system/slack-chatter-remote.service
+# /etc/systemd/system/slack-chatter-streamable.service
 [Unit]
-Description=Slack Chatter MCP Remote Protocol Server
+Description=Slack Chatter MCP Streamable HTTP Server
 After=network.target
 
 [Service]
@@ -302,9 +509,9 @@ WantedBy=multi-user.target
 **Enable Services:**
 ```bash
 sudo systemctl enable slack-chatter-ingestion
-sudo systemctl enable slack-chatter-remote
+sudo systemctl enable slack-chatter-streamable
 sudo systemctl start slack-chatter-ingestion
-sudo systemctl start slack-chatter-remote
+sudo systemctl start slack-chatter-streamable
 ```
 
 ### Option 6: Serverless/Cron-based (Alternative)
@@ -316,7 +523,7 @@ For serverless ingestion (less reliable than 24/7 worker):
 - **Vercel Cron** + Vercel Functions
 - **GitHub Actions** (for development)
 
-**Note**: MCP Remote Protocol server needs persistent deployment.
+**Note**: MCP Streamable HTTP server needs persistent deployment.
 
 ### Option 7: Local Development
 
@@ -325,7 +532,7 @@ For development and testing:
 # Run ingestion worker locally
 python main_orchestrator.py ingestion
 
-# Run MCP Remote Protocol server locally
+# Run MCP Streamable HTTP server locally
 python main_orchestrator.py remote
 
 # Run combined mode (ingestion + MCP stdio server)
@@ -340,7 +547,7 @@ python main_orchestrator.py mcp
 | Mode | Use Case | Components | Port | Authentication |
 |------|----------|------------|------|----------------|
 | **Ingestion Only** | Background data processing | Worker only | None | N/A |
-| **MCP Remote** | Remote API access | Worker + Remote Server | 8080 | OAuth 2.1 |
+| **MCP Streamable** | Remote API access | Worker + Streamable Server | 8080 | API Keys/OAuth |
 | **Combined** | All-in-one deployment | Worker + Stdio Server | None | N/A |
 | **Local MCP** | Development/testing | Stdio Server only | None | N/A |
 
@@ -354,26 +561,36 @@ python main_orchestrator.py mcp
 | **Docker** | Varies | 30 mins | ⭐⭐ | Maximum flexibility |
 | **VPS** | ~$5-20 | 1+ hour | ⭐ | Full control |
 
-## MCP Remote Protocol Configuration
+## MCP Streamable HTTP Configuration
 
-### OAuth 2.1 Setup
+### Authentication
 
-The MCP Remote Protocol server automatically registers a default OAuth client:
+The MCP Streamable HTTP server supports:
 
-- **Client ID**: `mcp-slack-chatter-client`
-- **Client Secret**: Generated on startup (check server logs)
-- **Scopes**: `mcp:search`, `mcp:channels`, `mcp:stats`
-- **Redirect URIs**: `http://localhost:3000/callback`, `https://*.replit.app/callback`
+1. **API Key Authentication** (Recommended for most clients)
+   ```
+   Authorization: Bearer mcp_key_generated_key_here
+   ```
 
-### Production OAuth Configuration
+2. **OAuth Token Authentication** (For advanced integrations)
+   ```
+   Authorization: Bearer oauth_token_here
+   ```
 
-For production deployments:
+3. **Session Management** (After initial authentication)
+   ```
+   mcp-session-id: mcp_session_generated_session_id
+   ```
 
-1. **Configure proper redirect URIs** based on your deployment URL
-2. **Enable HTTPS** for OAuth 2.1 flows
-3. **Update CORS settings** in the FastAPI application
-4. **Implement rate limiting** for OAuth endpoints
-5. **Set up monitoring** for authentication failures
+### Getting Your API Key
+
+**Development:**
+```bash
+# Visit your deployment URL
+curl https://your-deployment.com/dev/api-key
+```
+
+**Production:** API keys should be managed securely through environment variables or a key management system.
 
 ### Client Integration
 
@@ -383,24 +600,41 @@ For production deployments:
   "mcpServers": {
     "slack-chatter": {
       "command": "slack-chatter",
-      "args": ["mcp"]
+      "args": ["mcp"],
+      "env": {
+        "SLACK_BOT_TOKEN": "xoxb-your-token",
+        "OPENAI_API_KEY": "sk-your-key",
+        "PINECONE_API_KEY": "your-pinecone-key",
+        "PINECONE_ENVIRONMENT": "us-west1-gcp",
+        "NOTION_INTEGRATION_SECRET": "your-notion-secret",
+        "NOTION_DATABASE_ID": "your-database-id",
+        "SLACK_CHANNELS": "C1234567890,C0987654321"
+      }
     }
   }
 }
 ```
 
-**Remote MCP (OAuth 2.1):**
-```python
-from mcp_remote_client import MCPRemoteClient
-
-client = MCPRemoteClient(
-    base_url="https://your-deployment.replit.app",
-    client_id="mcp-slack-chatter-client",
-    client_secret="your_client_secret"
-)
-
-await client.authenticate()
-results = await client.search_messages("deployment issues")
+**Remote MCP (Streamable HTTP):**
+```json
+{
+  "mcpServers": {
+    "slack-chatter-remote": {
+      "transport": "http",
+      "endpoint": "https://your-deployment.replit.app/mcp",
+      "authentication": {
+        "type": "bearer",
+        "token": "mcp_key_your_api_key_here"
+      },
+      "options": {
+        "standard": "streamable-http-2025",
+        "session_management": true,
+        "supports_get": true,
+        "supports_post": true
+      }
+    }
+  }
+}
 ```
 
 ## Cloud Platform Specific Instructions
@@ -410,13 +644,13 @@ results = await client.search_messages("deployment issues")
 2. Add environment variables in dashboard
 3. Choose deployment command:
    - Ingestion: `python main_orchestrator.py ingestion`
-   - Remote: `python main_orchestrator.py remote`
+   - Streamable: `python main_orchestrator.py remote`
    - Combined: `python main_orchestrator.py combined`
 
 ### Render
-1. Create Background Worker (for ingestion) + Web Service (for remote)
+1. Create Background Worker (for ingestion) + Web Service (for streamable)
 2. Set appropriate start commands
-3. Configure port 8080 for remote server
+3. Configure port 8080 for streamable server
 
 ### Replit
 1. Import from GitHub
@@ -434,16 +668,22 @@ results = await client.search_messages("deployment issues")
 python scripts/verify_ingestion.py
 ```
 
-**MCP Remote Protocol Server:**
+**MCP Streamable HTTP Server:**
 ```bash
-# Test OAuth discovery
-curl https://your-deployment.com/.well-known/oauth-authorization-server
+# Test server info
+curl https://your-deployment.com/info
 
 # Test health endpoint
 curl https://your-deployment.com/health
 
 # Test MCP endpoint (should fail without auth)
-curl -X POST https://your-deployment.com/mcp/request \
+curl -X POST https://your-deployment.com/mcp \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
+
+# Test with authentication
+curl -X POST https://your-deployment.com/mcp \
+  -H "Authorization: Bearer mcp_key_your_api_key" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc": "2.0", "method": "tools/list", "id": 1}'
 ```
@@ -451,22 +691,29 @@ curl -X POST https://your-deployment.com/mcp/request \
 ### Common Issues
 
 1. **Environment variables not set**: Check deployment platform configuration
-2. **OAuth client secret**: Check server startup logs for generated secret
-3. **Port configuration**: Ensure port 8080 is exposed for remote server
-4. **CORS issues**: Update allowed origins for production domains
-5. **Token expiration**: Implement token refresh in client applications
+2. **API key not working**: Check server logs for generated API key
+3. **Port configuration**: Ensure port 8080 is exposed for streamable server
+4. **Session management**: Use session IDs for subsequent requests after initial auth
+5. **CORS issues**: Update allowed origins for production domains
 
 ## Security Considerations
 
 ### Production Checklist
 
-- [ ] **HTTPS enabled** for OAuth 2.1 flows
+- [ ] **HTTPS enabled** for all HTTP communication
+- [ ] **API keys secured** (not in code or logs)
+- [ ] **Environment variables protected** on deployment platform
+- [ ] **Session expiration** properly configured (24 hours default)
 - [ ] **CORS configured** with specific origins (not `*`)
-- [ ] **Environment variables secured** (not in code)
-- [ ] **Rate limiting implemented** for OAuth endpoints
+- [ ] **Rate limiting enabled** for the `/mcp` endpoint
+- [ ] **Input validation** for all MCP parameters
 - [ ] **Monitoring enabled** for failed authentication attempts
-- [ ] **Token expiration** properly handled in clients
-- [ ] **Redirect URIs validated** and restricted
 - [ ] **Firewall rules** configured for required ports only
 
-The deployment guide now covers both the traditional ingestion worker deployment and the new MCP Remote Protocol server deployment options. 
+### Development Security
+- [ ] **Development endpoints** removed in production (`/dev/api-key`)
+- [ ] **API key rotation** implemented for long-running deployments
+- [ ] **Secure local development** environment
+- [ ] **Regular dependency updates** via `uv sync`
+
+The deployment guide now covers the new MCP Streamable HTTP standard with clear client configuration examples and comprehensive deployment options. 
