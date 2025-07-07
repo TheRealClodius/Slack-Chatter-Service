@@ -24,6 +24,10 @@ author = "agent"
 task = "workflow.run"
 args = "MCP Server"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Ingestion Worker"
+
 [[workflows.workflow]]
 name = "MCP Server"
 author = "agent"
@@ -32,3 +36,11 @@ author = "agent"
 task = "shell.exec"
 args = "python3 main_orchestrator.py remote"
 waitForPort = 5000
+
+[[workflows.workflow]]
+name = "Ingestion Worker"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python3 main_orchestrator.py ingestion"
