@@ -16,7 +16,7 @@ from typing import Optional
 from lib.config import config
 from search.service import create_search_service
 from mcp.server import create_mcp_server, create_mcp_remote_server
-from mcp.llm_search_agent import create_llm_search_agent
+# Removed LLM agent import - agents should be on client side
 
 
 class SlackChatterOrchestrator:
@@ -25,7 +25,7 @@ class SlackChatterOrchestrator:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.search_service = None
-        self.search_agent = None
+# Removed search_agent - agents should be on client side
         self.mcp_server = None
     
     async def run_mcp_server(self):
@@ -34,17 +34,11 @@ class SlackChatterOrchestrator:
         print("=" * 60)
         
         try:
-            # Initialize services
+            # Initialize search service only
             self.search_service = create_search_service()
-            self.search_agent = create_llm_search_agent()
             
-            # Create MCP server with intelligent search agent
-            enhanced_search_service = EnhancedSearchService(
-                search_service=self.search_service,
-                search_agent=self.search_agent
-            )
-            
-            self.mcp_server = create_mcp_server(search_service=enhanced_search_service)
+            # Create MCP server with direct search service (no server-side agent)
+            self.mcp_server = create_mcp_server(search_service=self.search_service)
             
             # Run the MCP server
             await self.mcp_server.run()
@@ -63,22 +57,10 @@ class SlackChatterOrchestrator:
         print("=" * 60)
         
         try:
-            # Initialize services with error handling
+            # Initialize search service only
             print("🔧 Initializing search service...")
             self.search_service = create_search_service()
             print("✅ Search service initialized")
-            
-            print("🤖 Initializing LLM search agent...")
-            self.search_agent = create_llm_search_agent()
-            print("✅ LLM search agent initialized")
-            
-            # Create enhanced search service
-            print("🔀 Creating enhanced search service...")
-            enhanced_search_service = EnhancedSearchService(
-                search_service=self.search_service,
-                search_agent=self.search_agent
-            )
-            print("✅ Enhanced search service created")
             
             # Import and configure the FastAPI app
             print("📦 Loading FastAPI application...")
@@ -87,7 +69,7 @@ class SlackChatterOrchestrator:
             
             # Set the search service for the MCP remote server
             print("🔗 Connecting search service to MCP server...")
-            set_search_service(enhanced_search_service)
+            set_search_service(self.search_service)
             print("✅ Search service connected")
             
             # Get port from environment or use 5000 for Replit
@@ -147,22 +129,10 @@ class SlackChatterOrchestrator:
         print("=" * 60)
         
         try:
-            # Initialize services with error handling
+            # Initialize search service only
             print("🔧 Initializing search service...")
             self.search_service = create_search_service()
             print("✅ Search service initialized")
-            
-            print("🤖 Initializing LLM search agent...")
-            self.search_agent = create_llm_search_agent()
-            print("✅ LLM search agent initialized")
-            
-            # Create enhanced search service
-            print("🔀 Creating enhanced search service...")
-            enhanced_search_service = EnhancedSearchService(
-                search_service=self.search_service,
-                search_agent=self.search_agent
-            )
-            print("✅ Enhanced search service created")
             
             # Import and configure the FastAPI app
             print("📦 Loading FastAPI application...")
@@ -171,7 +141,7 @@ class SlackChatterOrchestrator:
             
             # Set the search service for the MCP remote server
             print("🔗 Connecting search service to MCP server...")
-            set_search_service(enhanced_search_service)
+            set_search_service(self.search_service)
             print("✅ Search service connected")
             
             # Get port from environment or use 5000 for Replit
@@ -242,9 +212,8 @@ class SlackChatterOrchestrator:
         print("=" * 60)
         
         try:
-            # Initialize services
+            # Initialize search service only
             self.search_service = create_search_service()
-            self.search_agent = create_llm_search_agent()
             
             # Test the search service
             await self._test_search_service()
@@ -269,7 +238,7 @@ class SlackChatterOrchestrator:
         channels = await self.search_service.get_channels()
         print(f"Channels: {channels}")
         
-        # Test search with enhanced agent
+        # Test direct search (no server-side agent)
         if stats.get("total_vectors", 0) > 0:
             test_queries = [
                 "deployment issues",
@@ -281,12 +250,8 @@ class SlackChatterOrchestrator:
             for query in test_queries:
                 print(f"\nTesting query: '{query}'")
                 
-                # Enhance the query
-                enhanced_query = await self.search_agent.enhance_query(query)
-                print(f"Enhanced query: {enhanced_query.reasoning}")
-                
-                # Perform search
-                results = await self.search_service.search(**enhanced_query.search_params)
+                # Perform direct search (no agent enhancement on server)
+                results = await self.search_service.search(query=query, top_k=10)
                 print(f"Found {len(results)} results")
                 
                 # Show first result
@@ -322,38 +287,7 @@ class SlackChatterOrchestrator:
             sys.exit(1)
 
 
-class EnhancedSearchService:
-    """Search service enhanced with intelligent agent"""
-    
-    def __init__(self, search_service, search_agent):
-        self.search_service = search_service
-        self.search_agent = search_agent
-    
-    async def search(self, query: str, top_k: int = 10, **kwargs):
-        """Search with intelligent query enhancement"""
-        # Enhance the query first
-        enhanced_query = await self.search_agent.enhance_query(query, context=kwargs)
-        
-        # Use the enhanced search parameters
-        search_params = enhanced_query.search_params
-        search_params.update(kwargs)  # Allow overrides
-        
-        # Perform search
-        results = await self.search_service.search(**search_params)
-        
-        return results
-    
-    async def get_channels(self):
-        """Get channels from the search service"""
-        return await self.search_service.get_channels()
-    
-    async def get_stats(self):
-        """Get stats from the search service"""
-        return await self.search_service.get_stats()
-    
-    async def health_check(self):
-        """Health check from the search service"""
-        return await self.search_service.health_check()
+# Removed EnhancedSearchService - agents belong on client side, not server side
 
 
 def create_argument_parser():

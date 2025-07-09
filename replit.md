@@ -33,9 +33,9 @@ The application follows a clean, modular architecture with separation of concern
 - **Dual Implementation**: Pure JSON-RPC 2.0 protocol over stdio + Remote Protocol server
 - **Local MCP**: Traditional subprocess execution for MCP clients
 - **Remote MCP**: OAuth 2.1 authentication with SSE communication
-- Provides search capabilities via both protocols
+- Provides direct search capabilities via both protocols
 - Handles client requests for message search, channel information, and statistics
-- Integrates with LLM search agent for intelligent query enhancement
+- **Clean Architecture**: No server-side agents - agents belong on client side
 
 #### Remote MCP Application (`mcp/fastapi_app.py`)
 - **OAuth 2.1 Implementation**: Complete authorization server with PKCE
@@ -46,10 +46,11 @@ The application follows a clean, modular architecture with separation of concern
 - **Security Features**: CORS, rate limiting, input validation
 
 #### LLM Search Agent (`mcp/llm_search_agent.py`)
+- **Client-side only**: Agent code preserved for client-side integration
 - AI-powered query enhancement using OpenAI GPT-4o-mini
 - YAML-based configuration for system prompts and model settings
 - Transforms natural language queries into structured search parameters
-- Provides reasoning for search strategy decisions
+- **Note**: Removed from server - proper MCP architecture uses client-side agents
 
 #### Search Service (`search/service.py`)
 - Dedicated semantic search functionality
@@ -301,6 +302,7 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
+- July 09, 2025. **ARCHITECTURE CLEANUP**: Removed server-side agent code - proper MCP architecture achieved
 - July 09, 2025. **AUTHENTICATION SUCCESS**: Server-generated API key system working perfectly - authentication breakthrough achieved
 - July 09, 2025. **Production Deployment**: Full MCP server operational with 6/7 tools on port 5000 
 - July 09, 2025. **Auto-Generated Keys**: Server creates deployment keys automatically with 192-bit entropy
