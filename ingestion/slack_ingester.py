@@ -252,21 +252,32 @@ class SlackIngester:
                 # Get channel messages
                 messages = await self.get_channel_messages(channel_id, oldest=oldest)
                 
+                # Create a set to track which messages are thread replies
+                thread_reply_ids = set()
+                
                 # For each message that has replies, get the thread
                 for message in messages:
                     if message.is_thread_parent and message.reply_count > 0:
                         try:
                             thread_replies = await self.get_thread_replies(channel_id, message.id)
                             message.thread_replies = thread_replies
+                            # Track thread reply IDs to avoid duplicates
+                            for reply in thread_replies:
+                                thread_reply_ids.add(reply.id)
                         except Exception as e:
                             print(f"Error getting thread replies for {message.id}: {e}")
+                
+                # Filter out thread replies from main message list (they're nested under parents)
+                top_level_messages = [msg for msg in messages if msg.id not in thread_reply_ids]
                 
                 # Get canvas content for the channel
                 canvas_messages = await self.get_channel_canvas_content(channel_id)
                 all_messages.extend(canvas_messages)
                 
-                all_messages.extend(messages)
-                print(f"Successfully processed {len(messages)} messages and {len(canvas_messages)} canvas items from {channel_id}")
+                all_messages.extend(top_level_messages)
+                
+                total_thread_replies = sum(len(msg.thread_replies) for msg in top_level_messages)
+                print(f"Successfully processed {len(top_level_messages)} top-level messages, {total_thread_replies} thread replies, and {len(canvas_messages)} canvas items from {channel_id}")
                 
             except Exception as e:
                 print(f"Error processing channel {channel_id}: {e}")

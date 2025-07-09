@@ -65,6 +65,15 @@ class SlackMessage:
             reactions_text = ", ".join([f"{r.name}({r.count})" for r in self.reactions])
             text_parts.append(f"Reactions: {reactions_text}")
         
+        # Add thread replies if this is a thread parent
+        if self.thread_replies:
+            text_parts.append(f"\nThread Replies ({len(self.thread_replies)}):")
+            for i, reply in enumerate(self.thread_replies, 1):
+                text_parts.append(f"Reply {i} by {reply.user_name} at {reply.timestamp.strftime('%H:%M')}: {reply.text}")
+                if reply.reactions:
+                    reply_reactions = ", ".join([f"{r.name}({r.count})" for r in reply.reactions])
+                    text_parts.append(f"  Reactions: {reply_reactions}")
+        
         return "\n".join(text_parts)
     
     def to_metadata(self) -> Dict[str, Any]:
