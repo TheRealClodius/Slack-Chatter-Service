@@ -261,8 +261,12 @@ class SlackIngester:
                         except Exception as e:
                             print(f"Error getting thread replies for {message.id}: {e}")
                 
+                # Get canvas content for the channel
+                canvas_messages = await self.get_channel_canvas_content(channel_id)
+                all_messages.extend(canvas_messages)
+                
                 all_messages.extend(messages)
-                print(f"Successfully processed {len(messages)} messages from {channel_id}")
+                print(f"Successfully processed {len(messages)} messages and {len(canvas_messages)} canvas items from {channel_id}")
                 
             except Exception as e:
                 print(f"Error processing channel {channel_id}: {e}")
@@ -291,4 +295,87 @@ class SlackIngester:
         except SlackApiError as e:
             print(f"Error getting latest message timestamp for {channel_id}: {e}")
         
-        return None 
+        return None
+    
+    async def get_channel_canvas_content(self, channel_id: str) -> List[SlackMessage]:
+        """Extract canvas content from a channel"""
+        canvas_messages = []
+        
+        try:
+            # Get channel info to find canvas files
+            response = await self._make_slack_api_call("conversations_info", channel=channel_id)
+            channel_data = response.get('channel', {})
+            
+            # Check if channel has canvas in properties
+            properties = channel_data.get('properties', {})
+            canvas_info = properties.get('canvas', {})
+            
+            if canvas_info and canvas_info.get('file_id'):
+                canvas_file_id = canvas_info['file_id']
+                
+                # Get canvas file info
+                try:
+                    file_response = await self._make_slack_api_call("files_info", file=canvas_file_id)
+                    file_data = file_response.get('file', {})
+                    
+                    # Extract canvas content
+                    canvas_content = await self._extract_canvas_content(file_data)
+                    
+                    if canvas_content:
+                        # Create a message object for the canvas content
+                        canvas_message = SlackMessage(
+                            id=f"canvas_{canvas_file_id}",
+                            text=canvas_content,
+                            user_id=file_data.get('user', ''),
+                            user_name=file_data.get('username', 'Canvas'),
+                            channel_id=channel_id,
+                            channel_name=channel_data.get('name', channel_id),
+                            timestamp=datetime.fromtimestamp(file_data.get('created', 0), tz=timezone.utc),
+                            is_canvas=True,
+                            canvas_title=file_data.get('title', 'Canvas')
+                        )
+                        
+                        canvas_messages.append(canvas_message)
+                        print(f"Successfully extracted canvas content: {file_data.get('title', 'Untitled')}")
+                    
+                except Exception as e:
+                    print(f"Error extracting canvas {canvas_file_id}: {e}")
+                    
+        except Exception as e:
+            print(f"Error getting canvas content for channel {channel_id}: {e}")
+            
+        return canvas_messages
+    
+    async def _extract_canvas_content(self, file_data: Dict) -> str:
+        """Extract text content from canvas file data"""
+        content_parts = []
+        
+        # Add canvas title
+        title = file_data.get('title', '')
+        if title:
+            content_parts.append(f"Canvas Title: {title}")
+        
+        # Extract text from title_blocks (rich text content)
+        title_blocks = file_data.get('title_blocks', [])
+        for block in title_blocks:
+            if block.get('type') == 'rich_text':
+                for element in block.get('elements', []):
+                    if element.get('type') == 'rich_text_section':
+                        for text_element in element.get('elements', []):
+                            if text_element.get('type') == 'text':
+                                content_parts.append(text_element.get('text', ''))
+        
+        # Add basic file info
+        if file_data.get('size'):
+            content_parts.append(f"Canvas size: {file_data['size']} bytes")
+        
+        if file_data.get('canvas_readtime'):
+            read_time = file_data['canvas_readtime']
+            content_parts.append(f"Estimated read time: {read_time:.1f} minutes")
+        
+        # Add editor information
+        editors = file_data.get('editors', [])
+        if editors:
+            content_parts.append(f"Editors: {', '.join(editors)}")
+        
+        return "\n".join(content_parts) 

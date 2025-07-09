@@ -68,6 +68,8 @@ The application follows a clean, modular architecture with separation of concern
 - TTL-based caching for users and channels
 - Text cleaning and preprocessing
 - Endpoint-specific rate limiting for Slack API
+- **Canvas content extraction**: Automatically extracts and indexes Slack canvas content
+- **Rich content support**: Canvas titles, text blocks, and metadata are embedded for search
 
 ### Shared Libraries (`lib/`)
 
@@ -106,10 +108,11 @@ The application follows a clean, modular architecture with separation of concern
 ### Ingestion Flow
 1. **Worker Initialization**: Load previous state and configure scheduler
 2. **Message Fetching**: Retrieve messages from configured Slack channels
-3. **Text Processing**: Clean and preprocess message text
-4. **Embedding Generation**: Create semantic embeddings using OpenAI
-5. **Vector Storage**: Store embeddings in Pinecone with metadata
-6. **Logging**: Record ingestion metrics in Notion
+3. **Canvas Extraction**: Extract canvas content from channels with canvas files
+4. **Text Processing**: Clean and preprocess message text and canvas content
+5. **Embedding Generation**: Create semantic embeddings using OpenAI
+6. **Vector Storage**: Store embeddings in Pinecone with metadata
+7. **Logging**: Record ingestion metrics in Notion
 
 ### Local MCP Search Flow
 1. **Client Connection**: MCP client connects via subprocess (stdio)
@@ -298,6 +301,9 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
+- July 09, 2025. Added Slack canvas content extraction and embedding support
+- July 09, 2025. Enhanced data models with canvas metadata (title, content type)
+- July 09, 2025. Fixed OpenAI API key integration for successful embedding generation
 - July 07, 2025. Added MCP Remote Protocol with OAuth 2.1 and SSE
 - July 07, 2025. Dual MCP implementation (stdio + remote)
 - July 07, 2025. Enhanced security with authentication and scoped permissions

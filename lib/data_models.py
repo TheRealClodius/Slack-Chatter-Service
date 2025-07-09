@@ -30,6 +30,8 @@ class SlackMessage:
     reactions: List[SlackReaction] = field(default_factory=list)
     is_thread_parent: bool = False
     thread_replies: List['SlackMessage'] = field(default_factory=list)
+    is_canvas: bool = False  # True if this is canvas content
+    canvas_title: Optional[str] = None  # Canvas title if applicable
     
     def to_text_for_embedding(self) -> str:
         """Convert message to text suitable for embedding generation"""
@@ -44,14 +46,19 @@ class SlackMessage:
         # Add timestamp context
         text_parts.append(f"Time: {self.timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
         
-        # Add thread context if applicable
-        if self.thread_ts and not self.is_thread_parent:
+        # Add content type context
+        if self.is_canvas:
+            text_parts.append("Canvas")
+            if self.canvas_title:
+                text_parts.append(f"Canvas Title: {self.canvas_title}")
+        elif self.thread_ts and not self.is_thread_parent:
             text_parts.append("Thread Reply")
         elif self.is_thread_parent and self.reply_count > 0:
             text_parts.append(f"Thread Parent ({self.reply_count} replies)")
         
         # Add main message text
-        text_parts.append(f"Message: {self.text}")
+        content_label = "Canvas Content" if self.is_canvas else "Message"
+        text_parts.append(f"{content_label}: {self.text}")
         
         # Add reactions if any
         if self.reactions:
@@ -73,7 +80,9 @@ class SlackMessage:
             "is_thread_parent": self.is_thread_parent,
             "reply_count": self.reply_count,
             "reaction_count": len(self.reactions),
-            "text_length": len(self.text)
+            "text_length": len(self.text),
+            "is_canvas": self.is_canvas,
+            "canvas_title": self.canvas_title if self.canvas_title else ""
         }
 
 @dataclass
