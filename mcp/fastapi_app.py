@@ -143,6 +143,11 @@ async def mcp_endpoint(
         
         body_str = body.decode('utf-8')
         
+        # Log the complete request for debugging
+        logging.info(f"Processing MCP request from {request.client.host if request.client else 'unknown'}")
+        logging.info(f"Request headers prepared: {headers}")
+        logging.info(f"Request body preview: {body_str[:100]}...")
+        
         response = await mcp_streamable_server.handle_mcp_request(
             method="POST",
             headers=headers,
