@@ -482,8 +482,8 @@ class MCPStreamableHTTPServer:
     
     def _authenticate_request(self, headers: Dict[str, str]) -> MCPSession:
         """Authenticate request and return session"""
-        # Check for existing session
-        session_id = headers.get("mcp-session-id")
+        # Check for existing session (MCP 2.0 compliant header)
+        session_id = headers.get("Mcp-Session-Id")
         if session_id:
             try:
                 return self._validate_session(session_id)
@@ -491,9 +491,9 @@ class MCPStreamableHTTPServer:
                 pass  # Continue to other auth methods
         
         # Check for API key authentication
-        api_key = headers.get("authorization")
-        if api_key and api_key.startswith("Bearer "):
-            api_key = api_key[7:]  # Remove "Bearer " prefix
+        auth_header = headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            api_key = auth_header[7:]  # Remove "Bearer " prefix
             
             if api_key.startswith("mcp_key_"):
                 # API key authentication
@@ -539,32 +539,24 @@ class MCPStreamableHTTPServer:
             # Authenticate request
             session = self._authenticate_request(headers)
             
-            # Parse request data
-            if method == "POST":
-                if not body:
-                    raise ValueError("POST request requires body")
-                
-                try:
-                    request_data = json.loads(body)
-                except json.JSONDecodeError:
-                    raise ValueError("Invalid JSON in request body")
+            # Parse JSON-RPC request data (MCP 2.0 only accepts POST)
+            if method != "POST":
+                raise ValueError("MCP 2.0 specification requires HTTP POST")
             
-            elif method == "GET":
-                # For GET requests, construct JSON-RPC from query params
-                mcp_method = query_params.get("method")
-                if not mcp_method:
-                    # Default to tools/list for GET requests
-                    mcp_method = "tools/list"
-                
-                request_data = {
-                    "jsonrpc": "2.0",
-                    "method": mcp_method,
-                    "params": dict(query_params),
-                    "id": query_params.get("id", 1)
-                }
+            if not body:
+                raise ValueError("JSON-RPC request body required")
             
-            else:
-                raise ValueError(f"Unsupported HTTP method: {method}")
+            try:
+                request_data = json.loads(body)
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON in request body")
+            
+            # Validate JSON-RPC 2.0 format
+            if request_data.get("jsonrpc") != "2.0":
+                raise ValueError("JSON-RPC 2.0 format required")
+            
+            if "method" not in request_data:
+                raise ValueError("JSON-RPC method required")
             
             # Validate scopes for the request
             self._validate_request_scopes(request_data, session.scopes)

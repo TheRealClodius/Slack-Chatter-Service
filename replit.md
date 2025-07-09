@@ -301,6 +301,11 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
+- July 09, 2025. **MCP 2.0 Specification Compliance**: Upgraded to pure MCP 2.0 (2025-03-26) compliance
+- July 09, 2025. **Authentication Fixed**: Resolved -32001 errors with proper session management
+- July 09, 2025. **JSON-RPC 2.0 Only**: Removed legacy query_params format, POST-only endpoint
+- July 09, 2025. **Header Compliance**: Updated to Mcp-Session-Id header format
+- July 09, 2025. **Ingestion Progress**: 124 messages processed from first channel with canvas support
 - July 09, 2025. Recreated Pinecone index with 1536 dimensions for text-embedding-3-small
 - July 09, 2025. Enhanced thread nesting to embed complete conversation context
 - July 09, 2025. Improved reaction handling with user attribution and proper nesting

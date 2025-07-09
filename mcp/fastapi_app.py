@@ -64,44 +64,41 @@ async def root():
         "version": "2.0.0",
         "standard": "MCP Streamable HTTP (March 2025)",
         "features": [
-            "Single endpoint supporting both GET and POST",
-            "Session management via headers (mcp-session-id)",
-            "JSON-RPC protocol compliance",
-            "Bidirectional communication",
+            "MCP 2.0 specification compliant (2025-03-26)",
+            "HTTP POST only with JSON-RPC 2.0 body",
+            "Session management via Mcp-Session-Id headers",
+            "Standard initialize, tools/list, tools/call methods",
             "Authentication support (API keys, OAuth tokens)"
         ],
         "endpoints": {
-            "mcp": "/mcp (GET & POST)",
+            "mcp": "/mcp (POST only - MCP 2.0 compliant)",
             "health": "/health",
             "session": "/session/{session_id}",
             "docs": "/docs"
         },
         "authentication": {
             "header": "Authorization: Bearer {api_key_or_oauth_token}",
-            "session_header": "mcp-session-id: {session_id}",
+            "session_header": "Mcp-Session-Id: {session_id}",
             "api_key_format": "mcp_key_...",
-            "oauth_token_format": "oauth_..."
+            "oauth_token_format": "oauth_...",
+            "specification": "MCP 2.0 (2025-03-26)"
         }
     }
 
 
-@app.get("/mcp")
 @app.post("/mcp")
 async def mcp_endpoint(
     request: Request,
-    mcp_session_id: Optional[str] = Header(None, alias="mcp-session-id"),
-    authorization: Optional[str] = Header(None),
-    method: Optional[str] = Query(None, description="MCP method for GET requests"),
-    query_params: Optional[str] = Query(None, description="Query parameters for GET requests")
+    mcp_session_id: Optional[str] = Header(None, alias="Mcp-Session-Id"),
+    authorization: Optional[str] = Header(None)
 ):
     """
-    Single MCP endpoint supporting both GET and POST (March 2025 Standard)
+    MCP 2.0 compliant endpoint (2025-03-26 specification)
     
-    GET: Query parameters are converted to JSON-RPC
-    POST: Request body should contain JSON-RPC
+    Only accepts HTTP POST with JSON-RPC 2.0 body
     
     Headers:
-    - mcp-session-id: Session identifier for authenticated sessions
+    - Mcp-Session-Id: Session identifier for authenticated sessions
     - Authorization: Bearer token for authentication (API key or OAuth token)
     """
     if not mcp_streamable_server:
@@ -111,80 +108,40 @@ async def mcp_endpoint(
         # Prepare headers dict
         headers = {}
         if mcp_session_id:
-            headers["mcp-session-id"] = mcp_session_id
+            headers["Mcp-Session-Id"] = mcp_session_id
         if authorization:
-            headers["authorization"] = authorization
+            headers["Authorization"] = authorization
         
-        # Get HTTP method
-        http_method = request.method
-        
-        # Handle request based on method
-        if http_method == "POST":
-            # POST: Parse JSON-RPC from body
-            body = await request.body()
-            body_str = body.decode('utf-8') if body else None
-            
-            response = await mcp_streamable_server.handle_mcp_request(
-                method=http_method,
-                headers=headers,
-                body=body_str,
-                query_params=None
+        # Only accept POST requests for MCP 2.0 compliance
+        if request.method != "POST":
+            raise HTTPException(
+                status_code=405, 
+                detail="MCP 2.0 specification requires HTTP POST with JSON-RPC body"
             )
         
-        elif http_method == "GET":
-            # GET: Handle client-specific query_params format
-            if query_params:
-                # Parse "search_messages,query" format
-                parts = query_params.split(',', 1)
-                if len(parts) == 2:
-                    action, query = parts
-                    if action == "search_messages":
-                        # Convert to proper JSON-RPC format
-                        json_rpc_request = {
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "method": "tools/call",
-                            "params": {
-                                "name": "search_slack_messages",
-                                "arguments": {
-                                    "query": query,
-                                    "top_k": 10
-                                }
-                            }
-                        }
-                        
-                        response = await mcp_streamable_server.handle_mcp_request(
-                            method="POST",  # Process as POST internally
-                            headers=headers,
-                            body=json.dumps(json_rpc_request),
-                            query_params=None
-                        )
-                    else:
-                        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
-                else:
-                    raise HTTPException(status_code=400, detail="Invalid query_params format")
-            else:
-                # Standard GET handling
-                query_params_dict = dict(request.query_params)
-                filtered_params = {k: v for k, v in query_params_dict.items() 
-                                 if not k.startswith('_') and v is not None and k not in ['method', 'query_params']}
-                
-                response = await mcp_streamable_server.handle_mcp_request(
-                    method=http_method,
-                    headers=headers,
-                    body=None,
-                    query_params=filtered_params
-                )
+        # Parse JSON-RPC from body
+        body = await request.body()
+        if not body:
+            raise HTTPException(
+                status_code=400,
+                detail="Request body required for JSON-RPC 2.0"
+            )
         
-        else:
-            raise HTTPException(status_code=405, detail="Method not allowed")
+        body_str = body.decode('utf-8')
+        
+        response = await mcp_streamable_server.handle_mcp_request(
+            method="POST",
+            headers=headers,
+            body=body_str,
+            query_params=None
+        )
         
         # Add session header to response if session was created/updated
         if response and "session_info" in response:
             session_id = response["session_info"]["session_id"]
             return JSONResponse(
                 content=response,
-                headers={"mcp-session-id": session_id}
+                headers={"Mcp-Session-Id": session_id}
             )
         
         return response
