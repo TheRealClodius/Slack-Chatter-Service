@@ -105,12 +105,26 @@ async def mcp_endpoint(
         raise HTTPException(status_code=503, detail="Server not initialized")
     
     try:
+        # Log all incoming headers for debugging
+        all_headers = dict(request.headers)
+        logging.debug(f"Incoming request headers: {all_headers}")
+        
         # Prepare headers dict
         headers = {}
         if mcp_session_id:
             headers["Mcp-Session-Id"] = mcp_session_id
+            logging.debug(f"Session ID found: {mcp_session_id}")
         if authorization:
             headers["Authorization"] = authorization
+            logging.debug(f"Authorization header found: {authorization[:20]}...")
+        else:
+            logging.warning("No authorization header found in request")
+            # Check if authorization is in the raw headers with different case
+            for header_name, header_value in all_headers.items():
+                if header_name.lower() == "authorization":
+                    headers["Authorization"] = header_value
+                    logging.info(f"Found authorization header with different case: {header_name}")
+                    break
         
         # Only accept POST requests for MCP 2.0 compliance
         if request.method != "POST":
