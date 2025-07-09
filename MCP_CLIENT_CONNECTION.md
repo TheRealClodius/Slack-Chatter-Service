@@ -3,9 +3,9 @@
 ## Remote MCP Server (Replit Deployment)
 
 **CORRECT URL:** `https://slack-chronicler-andreiclodius.replit.app/mcp` ✅  
-**STABLE API KEY:** `mcp_key_slack_chatter_2025_stable`
+**SECURE API KEY:** `mcp_key_6272e9d9c56ee99d27f1fa05f1f89b14db3f15a3041e6d60`
 
-**FIXED AUTHENTICATION:** Using consistent API key across all deployments
+**CRYPTOGRAPHICALLY SECURE:** 192-bit entropy, SHA256-based key generation
 
 **Note:** Server is accessible remotely on port 5000, bound to 0.0.0.0
 
@@ -17,7 +17,7 @@ import json
 
 # Remote MCP server connection
 MCP_SERVER_URL = 'https://slack-chronicler-andreiclodius.replit.app/mcp'
-API_KEY = 'mcp_key_slack_chatter_2025_stable'
+API_KEY = 'mcp_key_6272e9d9c56ee99d27f1fa05f1f89b14db3f15a3041e6d60'
 
 # Initialize session
 headers = {

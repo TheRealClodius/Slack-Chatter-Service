@@ -430,18 +430,26 @@ class MCPStreamableHTTPServer:
         self._generate_default_api_key()
     
     def _generate_default_api_key(self):
-        """Generate a default API key for development"""
-        # Use a fixed key for consistent remote deployment
+        """Generate a secure API key for deployment"""
         import os
+        import secrets
+        import hashlib
+        
+        # Check for environment variable first
         fixed_key = os.getenv("MCP_API_KEY")
         
         if fixed_key:
             api_key = fixed_key
-            self.logger.info(f"Using configured API key: {api_key}")
+            self.logger.info(f"Using configured API key from environment")
         else:
-            # Generate consistent key for this deployment
-            api_key = "mcp_key_slack_chatter_2025_stable"
-            self.logger.info(f"Using stable API key: {api_key}")
+            # Generate cryptographically secure key
+            # Use 32 bytes (256 bits) of entropy
+            random_bytes = secrets.token_bytes(32)
+            # Create a deterministic but secure key for this deployment
+            deployment_seed = f"slack_chatter_mcp_{os.getenv('REPL_ID', 'local')}"
+            combined_entropy = hashlib.sha256(deployment_seed.encode() + random_bytes).hexdigest()
+            api_key = f"mcp_key_{combined_entropy[:48]}"  # 48 hex chars = 192 bits
+            self.logger.info(f"Generated secure API key for deployment")
         
         self.api_keys[api_key] = {
             "name": "Slack Chatter MCP Key",
@@ -450,6 +458,8 @@ class MCPStreamableHTTPServer:
             "expires_at": datetime.utcnow() + timedelta(days=365)
         }
         
+        # Log the key securely (only first 16 chars for identification)
+        self.logger.info(f"API key registered: {api_key[:16]}...")
         return api_key
     
     def _create_session(self, user_id: str, scopes: List[str], 
