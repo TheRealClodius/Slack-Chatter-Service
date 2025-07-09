@@ -155,80 +155,95 @@ class PineconeService:
             except Exception as e:
                 print(f"❌ Error saving to local storage: {e}")
                 raise
-            
-            # Update data
-            data['vectors'] = vectors
-            data['last_update'] = datetime.now().isoformat()
-            
-            # Save to file
-            with open(self.storage_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            
-            print(f"Upserted {len(new_vectors)} vectors to index")
-            
-        except Exception as e:
-            print(f"Error upserting embeddings: {e}")
     
     async def delete_by_filter(self, filter_dict: Dict[str, Any]):
         """Delete vectors matching the filter"""
-        try:
-            # Load existing data
-            with open(self.storage_file, 'r') as f:
-                data = json.load(f)
-            
-            vectors = data.get('vectors', [])
-            original_count = len(vectors)
-            
-            # Filter vectors (simple implementation)
-            filtered_vectors = []
-            for vector in vectors:
-                metadata = vector.get('metadata', {})
-                should_delete = True
+        if self.use_pinecone:
+            try:
+                # Use Pinecone delete API
+                self.index.delete(filter=filter_dict)
+                print(f"✅ Deleted vectors matching filter from Pinecone")
+            except Exception as e:
+                print(f"❌ Error deleting from Pinecone: {e}")
+                raise
+        else:
+            try:
+                # Load existing data
+                with open(self.storage_file, 'r') as f:
+                    data = json.load(f)
                 
-                for key, value in filter_dict.items():
-                    if key not in metadata or metadata[key] != value:
-                        should_delete = False
-                        break
+                vectors = data.get('vectors', [])
+                original_count = len(vectors)
                 
-                if not should_delete:
-                    filtered_vectors.append(vector)
-            
-            # Update data
-            data['vectors'] = filtered_vectors
-            data['last_update'] = datetime.now().isoformat()
-            
-            # Save to file
-            with open(self.storage_file, 'w') as f:
-                json.dump(data, f, indent=2)
-            
-            deleted_count = original_count - len(filtered_vectors)
-            print(f"Deleted {deleted_count} vectors from index")
-            
-        except Exception as e:
-            print(f"Error deleting vectors: {e}")
+                # Filter vectors (simple implementation)
+                filtered_vectors = []
+                for vector in vectors:
+                    metadata = vector.get('metadata', {})
+                    should_delete = True
+                    
+                    for key, value in filter_dict.items():
+                        if key not in metadata or metadata[key] != value:
+                            should_delete = False
+                            break
+                    
+                    if not should_delete:
+                        filtered_vectors.append(vector)
+                
+                # Update data
+                data['vectors'] = filtered_vectors
+                data['last_update'] = datetime.utcnow().isoformat()
+                
+                # Save to file
+                with open(self.storage_file, 'w') as f:
+                    json.dump(data, f, indent=2)
+                
+                deleted_count = original_count - len(filtered_vectors)
+                print(f"Deleted {deleted_count} vectors from local storage")
+                
+            except Exception as e:
+                print(f"Error deleting vectors: {e}")
+                raise
     
     async def query_similar(self, query_embedding: List[float], top_k: int = 10, 
                            filter_dict: Optional[dict] = None) -> List[dict]:
         """Query for similar vectors"""
-        try:
-            # Load data from file
-            with open(self.storage_file, 'r') as f:
-                data = json.load(f)
-            
-            vectors = data.get('vectors', [])
-            
-            # Simple similarity search (basic implementation for deployment)
-            # In production, you'd use proper vector similarity search
-            results = []
-            for i, vector in enumerate(vectors[:top_k]):  # Return first top_k for simplicity
-                results.append({
-                    'id': vector.get('id', f'vector_{i}'),
-                    'score': 0.8,  # Mock similarity score
-                    'metadata': vector.get('metadata', {})
-                })
-            
-            return results
-            
-        except Exception as e:
-            print(f"Error querying vectors: {e}")
-            return []
+        if self.use_pinecone:
+            try:
+                # Use Pinecone query API
+                query_params = {
+                    'vector': query_embedding,
+                    'top_k': top_k,
+                    'include_metadata': True
+                }
+                if filter_dict:
+                    query_params['filter'] = filter_dict
+                    
+                response = self.index.query(**query_params)
+                return response.matches
+                
+            except Exception as e:
+                print(f"❌ Error querying Pinecone: {e}")
+                return []
+        else:
+            try:
+                # Load data from file
+                with open(self.storage_file, 'r') as f:
+                    data = json.load(f)
+                
+                vectors = data.get('vectors', [])
+                
+                # Simple similarity search (basic implementation for deployment)
+                # In production, you'd use proper vector similarity search
+                results = []
+                for i, vector in enumerate(vectors[:top_k]):  # Return first top_k for simplicity
+                    results.append({
+                        'id': vector['id'],
+                        'score': 0.8 - (i * 0.1),  # Mock similarity score
+                        'metadata': vector.get('metadata', {})
+                    })
+                
+                return results
+                
+            except Exception as e:
+                print(f"Error querying vectors: {e}")
+                return []
