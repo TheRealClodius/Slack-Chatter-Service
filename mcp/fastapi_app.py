@@ -6,13 +6,17 @@ Implements single endpoint with session headers and simplified authentication
 import asyncio
 import json
 import logging
-from typing import Dict, List, Optional
-from urllib.parse import unquote
-
-from fastapi import FastAPI, Request, Response, HTTPException, Header, Query
-from fastapi.responses import JSONResponse, HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
 import secrets
+import hashlib
+import base64
+import time
+from typing import Dict, List, Optional
+from urllib.parse import unquote, urlencode, parse_qs
+from datetime import datetime, timedelta
+
+from fastapi import FastAPI, Request, Response, HTTPException, Header, Query, Form
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 
 from mcp.server import MCPStreamableHTTPServer, create_mcp_streamable_server
 
@@ -37,6 +41,21 @@ app.add_middleware(
 # Global MCP streamable server instance
 mcp_streamable_server: Optional[MCPStreamableHTTPServer] = None
 _search_service = None
+
+# OAuth 2.1 Configuration
+OAUTH_CONFIG = {
+    "client_id": "mcp-slack-chatter-client",
+    "client_secret": "mcp_client_secret_12345",  # In production, use environment variable
+    "redirect_uri": "http://localhost:3000/callback",  # Default redirect URI
+    "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
+    "authorization_code_expiry": 600,  # 10 minutes
+    "access_token_expiry": 86400,  # 24 hours
+}
+
+# In-memory storage (use Redis/database in production)
+authorization_codes: Dict[str, Dict] = {}
+access_tokens: Dict[str, Dict] = {}
+refresh_tokens: Dict[str, Dict] = {}
 
 
 def set_search_service(search_service):
@@ -95,6 +114,351 @@ async def log_requests(request: Request, call_next):
     logging.info(f"Response status: {response.status_code}")
     return response
 
+
+# Helper functions for OAuth 2.1
+def generate_pkce_challenge():
+    """Generate PKCE code verifier and challenge"""
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).decode('utf-8').rstrip('=')
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    ).decode('utf-8').rstrip('=')
+    return code_verifier, code_challenge
+
+
+def verify_pkce_challenge(code_verifier: str, code_challenge: str):
+    """Verify PKCE code challenge"""
+    expected_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode('utf-8')).digest()
+    ).decode('utf-8').rstrip('=')
+    return secrets.compare_digest(expected_challenge, code_challenge)
+
+
+def generate_token():
+    """Generate a secure token"""
+    return secrets.token_urlsafe(32)
+
+
+def is_token_expired(token_data: Dict) -> bool:
+    """Check if a token is expired"""
+    return datetime.utcnow() > token_data["expires_at"]
+
+
+# OAuth 2.1 Discovery Endpoint
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_discovery():
+    """OAuth 2.1 authorization server discovery endpoint"""
+    base_url = "http://0.0.0.0:5000"  # In production, use request.base_url
+    
+    return {
+        "issuer": base_url,
+        "authorization_endpoint": f"{base_url}/oauth/authorize",
+        "token_endpoint": f"{base_url}/oauth/token",
+        "scopes_supported": OAUTH_CONFIG["scopes"],
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["client_secret_post"],
+        "introspection_endpoint": f"{base_url}/oauth/introspect",
+        "revocation_endpoint": f"{base_url}/oauth/revoke"
+    }
+
+
+# OAuth 2.1 Authorization Endpoint
+@app.get("/oauth/authorize")
+async def oauth_authorize(
+    response_type: str = Query(...),
+    client_id: str = Query(...),
+    redirect_uri: str = Query(...),
+    scope: str = Query(...),
+    state: str = Query(...),
+    code_challenge: str = Query(...),
+    code_challenge_method: str = Query(...)
+):
+    """OAuth 2.1 authorization endpoint with PKCE"""
+    
+    # Validate parameters
+    if response_type != "code":
+        raise HTTPException(status_code=400, detail="Unsupported response_type")
+    
+    if client_id != OAUTH_CONFIG["client_id"]:
+        raise HTTPException(status_code=400, detail="Invalid client_id")
+    
+    if code_challenge_method != "S256":
+        raise HTTPException(status_code=400, detail="Unsupported code_challenge_method")
+    
+    requested_scopes = scope.split(" ")
+    invalid_scopes = [s for s in requested_scopes if s not in OAUTH_CONFIG["scopes"]]
+    if invalid_scopes:
+        raise HTTPException(status_code=400, detail=f"Invalid scopes: {invalid_scopes}")
+    
+    # Generate authorization code
+    auth_code = generate_token()
+    authorization_codes[auth_code] = {
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": scope,
+        "code_challenge": code_challenge,
+        "expires_at": datetime.utcnow() + timedelta(seconds=OAUTH_CONFIG["authorization_code_expiry"]),
+        "used": False
+    }
+    
+    # In a real implementation, you would show a consent page
+    # For MCP Remote Protocol, we'll auto-approve
+    
+    # Redirect with authorization code
+    params = {
+        "code": auth_code,
+        "state": state
+    }
+    redirect_url = f"{redirect_uri}?{urlencode(params)}"
+    
+    return RedirectResponse(url=redirect_url, status_code=302)
+
+
+# OAuth 2.1 Token Endpoint
+@app.post("/oauth/token")
+async def oauth_token(
+    grant_type: str = Form(...),
+    code: str = Form(None),
+    redirect_uri: str = Form(None),
+    client_id: str = Form(...),
+    client_secret: str = Form(...),
+    code_verifier: str = Form(None),
+    refresh_token: str = Form(None)
+):
+    """OAuth 2.1 token endpoint"""
+    
+    # Validate client credentials
+    if client_id != OAUTH_CONFIG["client_id"] or client_secret != OAUTH_CONFIG["client_secret"]:
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    if grant_type == "authorization_code":
+        # Authorization code flow
+        if not code or not code_verifier or not redirect_uri:
+            raise HTTPException(status_code=400, detail="Missing required parameters")
+        
+        # Validate authorization code
+        if code not in authorization_codes:
+            raise HTTPException(status_code=400, detail="Invalid authorization code")
+        
+        auth_data = authorization_codes[code]
+        
+        if auth_data["used"]:
+            raise HTTPException(status_code=400, detail="Authorization code already used")
+        
+        if is_token_expired(auth_data):
+            del authorization_codes[code]
+            raise HTTPException(status_code=400, detail="Authorization code expired")
+        
+        if auth_data["redirect_uri"] != redirect_uri:
+            raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+        
+        # Verify PKCE
+        if not verify_pkce_challenge(code_verifier, auth_data["code_challenge"]):
+            raise HTTPException(status_code=400, detail="Invalid code_verifier")
+        
+        # Mark code as used
+        auth_data["used"] = True
+        
+        # Generate tokens
+        access_token = generate_token()
+        refresh_token_value = generate_token()
+        
+        # Store tokens
+        token_data = {
+            "client_id": client_id,
+            "scope": auth_data["scope"],
+            "expires_at": datetime.utcnow() + timedelta(seconds=OAUTH_CONFIG["access_token_expiry"]),
+            "refresh_token": refresh_token_value
+        }
+        
+        access_tokens[access_token] = token_data
+        refresh_tokens[refresh_token_value] = {
+            "access_token": access_token,
+            "client_id": client_id,
+            "scope": auth_data["scope"]
+        }
+        
+        return {
+            "access_token": access_token,
+            "token_type": "Bearer",
+            "expires_in": OAUTH_CONFIG["access_token_expiry"],
+            "refresh_token": refresh_token_value,
+            "scope": auth_data["scope"]
+        }
+    
+    elif grant_type == "refresh_token":
+        # Refresh token flow
+        if not refresh_token:
+            raise HTTPException(status_code=400, detail="Missing refresh_token")
+        
+        if refresh_token not in refresh_tokens:
+            raise HTTPException(status_code=400, detail="Invalid refresh_token")
+        
+        refresh_data = refresh_tokens[refresh_token]
+        
+        # Revoke old access token
+        old_access_token = refresh_data["access_token"]
+        if old_access_token in access_tokens:
+            del access_tokens[old_access_token]
+        
+        # Generate new tokens
+        new_access_token = generate_token()
+        new_refresh_token = generate_token()
+        
+        # Store new tokens
+        token_data = {
+            "client_id": client_id,
+            "scope": refresh_data["scope"],
+            "expires_at": datetime.utcnow() + timedelta(seconds=OAUTH_CONFIG["access_token_expiry"]),
+            "refresh_token": new_refresh_token
+        }
+        
+        access_tokens[new_access_token] = token_data
+        refresh_tokens[new_refresh_token] = {
+            "access_token": new_access_token,
+            "client_id": client_id,
+            "scope": refresh_data["scope"]
+        }
+        
+        # Remove old refresh token
+        del refresh_tokens[refresh_token]
+        
+        return {
+            "access_token": new_access_token,
+            "token_type": "Bearer",
+            "expires_in": OAUTH_CONFIG["access_token_expiry"],
+            "refresh_token": new_refresh_token,
+            "scope": refresh_data["scope"]
+        }
+    
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported grant_type")
+
+
+# OAuth 2.1 Token Introspection
+@app.post("/oauth/introspect")
+async def oauth_introspect(
+    token: str = Form(...),
+    client_id: str = Form(...),
+    client_secret: str = Form(...)
+):
+    """OAuth 2.1 token introspection endpoint"""
+    
+    # Validate client credentials
+    if client_id != OAUTH_CONFIG["client_id"] or client_secret != OAUTH_CONFIG["client_secret"]:
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    if token in access_tokens:
+        token_data = access_tokens[token]
+        if not is_token_expired(token_data):
+            return {
+                "active": True,
+                "client_id": token_data["client_id"],
+                "scope": token_data["scope"],
+                "exp": int(token_data["expires_at"].timestamp())
+            }
+    
+    return {"active": False}
+
+
+# OAuth 2.1 Token Revocation
+@app.post("/oauth/revoke")
+async def oauth_revoke(
+    token: str = Form(...),
+    client_id: str = Form(...),
+    client_secret: str = Form(...)
+):
+    """OAuth 2.1 token revocation endpoint"""
+    
+    # Validate client credentials
+    if client_id != OAUTH_CONFIG["client_id"] or client_secret != OAUTH_CONFIG["client_secret"]:
+        raise HTTPException(status_code=401, detail="Invalid client credentials")
+    
+    # Revoke access token
+    if token in access_tokens:
+        token_data = access_tokens[token]
+        refresh_token_value = token_data.get("refresh_token")
+        
+        del access_tokens[token]
+        
+        # Also revoke associated refresh token
+        if refresh_token_value and refresh_token_value in refresh_tokens:
+            del refresh_tokens[refresh_token_value]
+    
+    # Revoke refresh token
+    elif token in refresh_tokens:
+        refresh_data = refresh_tokens[token]
+        access_token = refresh_data["access_token"]
+        
+        del refresh_tokens[token]
+        
+        # Also revoke associated access token
+        if access_token in access_tokens:
+            del access_tokens[access_token]
+    
+    return {"revoked": True}
+
+
+# Debug endpoints for development
+@app.get("/debug/oauth-client-info")
+async def debug_oauth_client_info():
+    """Debug endpoint to get OAuth client information"""
+    return {
+        "client_id": OAUTH_CONFIG["client_id"],
+        "client_secret": OAUTH_CONFIG["client_secret"],  # Only for development!
+        "scopes": OAUTH_CONFIG["scopes"],
+        "redirect_uri": OAUTH_CONFIG["redirect_uri"],
+        "endpoints": {
+            "discovery": "/.well-known/oauth-authorization-server",
+            "authorization": "/oauth/authorize",
+            "token": "/oauth/token",
+            "introspection": "/oauth/introspect",
+            "revocation": "/oauth/revoke"
+        },
+        "note": "⚠️ This endpoint exposes client secrets and should only be used in development!"
+    }
+
+
+@app.get("/debug/tokens")
+async def debug_tokens():
+    """Debug endpoint to see active tokens (development only)"""
+    return {
+        "active_access_tokens": len(access_tokens),
+        "active_refresh_tokens": len(refresh_tokens),
+        "active_auth_codes": len(authorization_codes),
+        "tokens": {
+            "access_tokens": [
+                {
+                    "token": token[:16] + "...",
+                    "client_id": data["client_id"],
+                    "scope": data["scope"],
+                    "expires_at": data["expires_at"].isoformat()
+                }
+                for token, data in access_tokens.items()
+            ]
+        },
+        "note": "⚠️ This endpoint is for development debugging only!"
+    }
+
+def validate_oauth_token(authorization_header: str) -> Dict:
+    """Validate OAuth 2.1 access token"""
+    if not authorization_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    
+    token = authorization_header[7:]  # Remove "Bearer " prefix
+    
+    if token not in access_tokens:
+        raise HTTPException(status_code=401, detail="Invalid access token")
+    
+    token_data = access_tokens[token]
+    if is_token_expired(token_data):
+        del access_tokens[token]
+        raise HTTPException(status_code=401, detail="Access token expired")
+    
+    return token_data
+
+
 @app.post("/mcp")
 async def mcp_endpoint(
     request: Request,
@@ -105,15 +469,24 @@ async def mcp_endpoint(
     MCP 2.0 compliant endpoint (2025-03-26 specification)
     
     Only accepts HTTP POST with JSON-RPC 2.0 body
+    Requires OAuth 2.1 authentication
     
     Headers:
     - Mcp-Session-Id: Session identifier for authenticated sessions
-    - Authorization: Bearer token for authentication (API key or OAuth token)
+    - Authorization: Bearer <oauth_access_token>
     """
     if not mcp_streamable_server:
         raise HTTPException(status_code=503, detail="Server not initialized")
     
     try:
+        # OAuth 2.1 authentication required
+        if not authorization:
+            raise HTTPException(status_code=401, detail="Authorization header required")
+        
+        # Validate OAuth token
+        token_data = validate_oauth_token(authorization)
+        logging.info(f"Authenticated request with scopes: {token_data['scope']}")
+        
         # Log all incoming headers for debugging
         all_headers = dict(request.headers)
         logging.debug(f"Incoming request headers: {all_headers}")
@@ -123,17 +496,9 @@ async def mcp_endpoint(
         if mcp_session_id:
             headers["Mcp-Session-Id"] = mcp_session_id
             logging.debug(f"Session ID found: {mcp_session_id}")
-        if authorization:
-            headers["Authorization"] = authorization
-            logging.debug(f"Authorization header found: {authorization[:20]}...")
-        else:
-            logging.warning("No authorization header found in request")
-            # Check if authorization is in the raw headers with different case
-            for header_name, header_value in all_headers.items():
-                if header_name.lower() == "authorization":
-                    headers["Authorization"] = header_value
-                    logging.info(f"Found authorization header with different case: {header_name}")
-                    break
+        
+        headers["Authorization"] = authorization
+        headers["OAuth-Scopes"] = token_data["scope"]  # Pass scopes to MCP server
         
         # Only accept POST requests for MCP 2.0 compliance
         if request.method != "POST":

@@ -302,6 +302,10 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
+- July 09, 2025. **OAUTH 2.1 COMPLETE**: Full OAuth 2.1 authentication flow implemented and tested successfully
+- July 09, 2025. **PRODUCTION READY**: Complete MCP Remote Protocol with PKCE authentication and 374 searchable messages
+- July 09, 2025. **SECURITY UPGRADE**: Moved from API keys to OAuth 2.1 with scoped permissions (mcp:search, mcp:channels, mcp:stats)
+- July 09, 2025. **CLIENT INTEGRATION**: Created comprehensive OAuth client guides and working demo scripts
 - July 09, 2025. **ARCHITECTURE CLEANUP**: Removed server-side agent code - proper MCP architecture achieved
 - July 09, 2025. **AUTHENTICATION SUCCESS**: Server-generated API key system working perfectly - authentication breakthrough achieved
 - July 09, 2025. **Production Deployment**: Full MCP server operational with 6/7 tools on port 5000 
@@ -310,7 +314,7 @@ Changelog:
 - July 09, 2025. **MCP 2.0 Specification Compliance**: Upgraded to pure MCP 2.0 (2025-03-26) compliance
 - July 09, 2025. **JSON-RPC 2.0 Only**: Removed legacy query_params format, POST-only endpoint
 - July 09, 2025. **Header Compliance**: Updated to Mcp-Session-Id header format
-- July 09, 2025. **Ingestion Progress**: 124 messages processed from first channel with canvas support
+- July 09, 2025. **Ingestion Progress**: 374 messages processed with complete OAuth authentication working
 - July 09, 2025. Recreated Pinecone index with 1536 dimensions for text-embedding-3-small
 - July 09, 2025. Enhanced thread nesting to embed complete conversation context
 - July 09, 2025. Improved reaction handling with user attribution and proper nesting

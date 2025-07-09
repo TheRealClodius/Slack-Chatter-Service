@@ -549,7 +549,19 @@ class MCPStreamableHTTPServer:
                 self.logger.debug(f"Session validation failed: {e}")
                 pass  # Continue to other auth methods
         
-        # Check for API key authentication
+        # Check for OAuth scopes header (passed from FastAPI)
+        oauth_scopes = headers.get("OAuth-Scopes")
+        if oauth_scopes:
+            self.logger.info(f"OAuth token pre-authenticated by FastAPI with scopes: {oauth_scopes}")
+            # FastAPI has already validated the OAuth token
+            # Create session for the authenticated user
+            return self._create_session(
+                user_id=f"oauth_user_{secrets.token_urlsafe(8)}",
+                scopes=oauth_scopes.split(" "),
+                oauth_token="validated_by_fastapi"
+            )
+        
+        # Check for API key authentication (fallback)
         auth_header = headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             api_key = auth_header[7:]  # Remove "Bearer " prefix
@@ -576,19 +588,9 @@ class MCPStreamableHTTPServer:
                     # Debug: Log all available keys
                     available_keys = [k[:16] + "..." for k in self.api_keys.keys()]
                     self.logger.debug(f"Available whitelisted keys: {available_keys}")
-            
-            elif api_key.startswith("oauth_"):
-                # OAuth token authentication
-                token_info = self.oauth_tokens.get(api_key)
-                if token_info and datetime.utcnow() < token_info["expires_at"]:
-                    # Create session for OAuth token
-                    return self._create_session(
-                        user_id=token_info["user_id"],
-                        scopes=token_info["scopes"],
-                        oauth_token=api_key
-                    )
             else:
-                self.logger.warning(f"Invalid API key format: {api_key[:16]}...")
+                self.logger.warning(f"Invalid token format for direct API access: {api_key[:16]}...")
+                self.logger.info("OAuth tokens must go through FastAPI OAuth flow")
         else:
             self.logger.warning("No Authorization header found or invalid format")
             self.logger.debug(f"Auth header: {auth_header}")
@@ -637,6 +639,11 @@ class MCPStreamableHTTPServer:
             
             # Validate scopes for the request
             self._validate_request_scopes(request_data, session.scopes)
+            
+            # Ensure MCP server is initialized
+            if not session.mcp_server.initialized and request_data.get("method") != "initialize":
+                # Auto-initialize the MCP server
+                await session.mcp_server._handle_initialize({})
             
             # Process the request through the MCP server
             response = await session.mcp_server._handle_request(request_data)
