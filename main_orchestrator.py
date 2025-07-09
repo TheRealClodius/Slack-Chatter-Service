@@ -138,13 +138,12 @@ class SlackChatterOrchestrator:
             sys.exit(1)
     
     def run_mcp_remote_server_sync(self):
-        """Synchronous wrapper for running MCP 2.0 compliant server"""
-        print("🚀 Starting MCP 2.0 Compliant Server")
+        """Synchronous wrapper for running MCP Remote Protocol server"""
+        print("🚀 Starting MCP Remote Protocol Server")
         print("=" * 60)
-        print("📋 Protocol: MCP 2025-06-18 specification")
-        print("🔌 JSON-RPC 2.0 over HTTP")
-        print("🔐 API Key authentication")
-        print("🔍 Semantic Slack message search")
+        print("🔒 OAuth 2.1 authentication enabled")
+        print("⚡ Server-Sent Events (SSE) communication")
+        print("🌐 Official MCP Remote Protocol implementation")
         print("=" * 60)
         
         try:
@@ -157,24 +156,37 @@ class SlackChatterOrchestrator:
             self.search_agent = create_llm_search_agent()
             print("✅ LLM search agent initialized")
             
-            # Import and configure the MCP 2.0 app
-            print("📦 Loading MCP 2.0 application...")
-            from mcp.mcp_2_0_server import create_mcp_2_0_app
+            # Create enhanced search service
+            print("🔀 Creating enhanced search service...")
+            enhanced_search_service = EnhancedSearchService(
+                search_service=self.search_service,
+                search_agent=self.search_agent
+            )
+            print("✅ Enhanced search service created")
+            
+            # Import and configure the FastAPI app
+            print("📦 Loading FastAPI application...")
+            from mcp.fastapi_app import app, set_search_service
             import uvicorn
             
-            # Create MCP 2.0 app with search services
+            # Set the search service for the MCP remote server
             print("🔗 Connecting search service to MCP server...")
-            app = create_mcp_2_0_app(self.search_service, self.search_agent)
+            set_search_service(enhanced_search_service)
             print("✅ Search service connected")
             
             # Get port from environment or use 5000 for Replit
             import os
             port = int(os.getenv('PORT', 5000))
             
-            self.logger.info(f"Starting MCP 2.0 server on port {port}...")
-            print(f"🔌 MCP Endpoint: http://0.0.0.0:{port}/mcp")
-            print(f"🛠️  Tools List: http://0.0.0.0:{port}/mcp/tools")
+            self.logger.info(f"Starting MCP Remote Protocol server on port {port}...")
+            print(f"🔒 OAuth Discovery: http://0.0.0.0:{port}/.well-known/oauth-authorization-server")
+            print(f"🔑 Authorization: http://0.0.0.0:{port}/oauth/authorize")
+            print(f"🎟️  Token: http://0.0.0.0:{port}/oauth/token")
+            print(f"⚡ MCP SSE: http://0.0.0.0:{port}/mcp/sse")
+            print(f"📡 MCP Request: http://0.0.0.0:{port}/mcp/request")
+            print(f"👤 Session Info: http://0.0.0.0:{port}/mcp/session")
             print(f"❤️  Health Check: http://0.0.0.0:{port}/health")
+            print(f"🐛 Debug OAuth: http://0.0.0.0:{port}/debug/oauth-clients")
             print(f"📚 API Docs: http://0.0.0.0:{port}/docs")
             
             # Run the server synchronously (no asyncio.run conflicts)
@@ -190,7 +202,7 @@ class SlackChatterOrchestrator:
         except ImportError as e:
             self.logger.error(f"Missing dependency: {str(e)}")
             print(f"❌ Missing dependency: {str(e)}")
-            print("💡 Try running: python3 -m pip install fastapi uvicorn")
+            print("💡 Try running: python3 -m pip install fastapi uvicorn sse-starlette")
             sys.exit(1)
         except OSError as e:
             if "Address already in use" in str(e):
@@ -202,7 +214,7 @@ class SlackChatterOrchestrator:
                 print(f"❌ Network error: {str(e)}")
             sys.exit(1)
         except Exception as e:
-            self.logger.error(f"MCP 2.0 server failed: {str(e)}")
+            self.logger.error(f"MCP Remote Protocol server failed: {str(e)}")
             print(f"❌ Server startup failed: {str(e)}")
             import traceback
             traceback.print_exc()
