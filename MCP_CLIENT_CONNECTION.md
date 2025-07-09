@@ -1,9 +1,11 @@
 # MCP Client Connection Guide
 
-## Local MCP Server (Our Implementation)
+## Remote MCP Server (Replit Deployment)
 
-**Server URL:** `http://localhost:5000/mcp`
-**Current API Key:** `mcp_key__Kc0WiL-R2F-Gf594N02ueiSYhvgsm44FE-X_oemKc0`
+**Server URL:** `https://[repl-id].[owner].replit.app/mcp`  
+**Current API Key:** `mcp_key_6HyB54aY8oWoSADOOldYWo5sXMuZxK5DhYtraJMEqFU`
+
+**Note:** Server is accessible remotely on port 5000, bound to 0.0.0.0
 
 ### MCP 2.0 Compliant Connection
 
@@ -11,10 +13,14 @@
 import requests
 import json
 
+# Remote MCP server connection
+MCP_SERVER_URL = 'https://[your-repl-id].[your-username].replit.app/mcp'
+API_KEY = 'mcp_key_6HyB54aY8oWoSADOOldYWo5sXMuZxK5DhYtraJMEqFU'
+
 # Initialize session
 headers = {
     'Content-Type': 'application/json',
-    'Authorization': 'Bearer mcp_key__Kc0WiL-R2F-Gf594N02ueiSYhvgsm44FE-X_oemKc0'
+    'Authorization': f'Bearer {API_KEY}'
 }
 
 init_request = {
@@ -32,7 +38,7 @@ init_request = {
 }
 
 # Initialize
-response = requests.post('http://localhost:5000/mcp', json=init_request, headers=headers)
+response = requests.post(MCP_SERVER_URL, json=init_request, headers=headers)
 session_id = response.json()['session_info']['session_id']
 
 # Add session header for subsequent requests
@@ -52,7 +58,7 @@ search_request = {
     }
 }
 
-response = requests.post('http://localhost:5000/mcp', json=search_request, headers=headers)
+response = requests.post(MCP_SERVER_URL, json=search_request, headers=headers)
 ```
 
 ### Available Tools
@@ -61,19 +67,21 @@ response = requests.post('http://localhost:5000/mcp', json=search_request, heade
 2. **get_slack_channels** - Get list of available channels  
 3. **get_search_stats** - Get indexing statistics
 
-### Connection Issue Resolution
+### Remote Access Configuration
 
-**PROBLEM:** You're connecting to `https://slack-chronicler-andreiclodius.replit.app` (external service)
-**SOLUTION:** Connect to our local server at `http://localhost:5000/mcp`
+**REPLIT URL:** The server is deployed on Replit and accessible remotely
+**PORT:** 5000 (bound to 0.0.0.0 for external access)
+**PROTOCOL:** HTTPS (Replit provides automatic SSL)
 
-**Key Differences:**
-- External service: `https://slack-chronicler-andreiclodius.replit.app` ❌ (Wrong API key)
-- Our local service: `http://localhost:5000/mcp` ✅ (Working authentication)
+**Getting Your Server URL:**
+1. Check your Replit console for the exact URL
+2. Format: `https://[repl-name].[username].replit.app/mcp`
+3. Use the current API key from server logs
 
 ### Important Notes
 
-- **DO NOT** connect to `https://slack-chronicler-andreiclodius.replit.app` - that's a different service
-- **USE** our local server at `http://localhost:5000/mcp` 
+- **REMOTE ACCESS** - Server runs on 0.0.0.0:5000 for external connectivity
+- **HTTPS REQUIRED** - Replit provides automatic SSL termination  
 - **API Key** changes on each server restart (check logs for current key)
 - **MCP 2.0 Only** - No GET requests, JSON-RPC 2.0 POST only
 - **Session Management** - Use `Mcp-Session-Id` header after initialization
