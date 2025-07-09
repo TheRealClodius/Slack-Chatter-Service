@@ -11,6 +11,7 @@ class Config:
     # OpenAI Configuration
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = 768  # Custom dimension for text-embedding-3-small
     
     # Pinecone Configuration
     pinecone_api_key: str = os.getenv("PINECONE_API_KEY", "")

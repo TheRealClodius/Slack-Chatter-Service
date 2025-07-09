@@ -49,7 +49,8 @@ class EmbeddingService:
             # For embeddings, we use text-embedding-3-small which is efficient and effective
             response = self.client.embeddings.create(
                 model=config.embedding_model,
-                input=text
+                input=text,
+                dimensions=config.embedding_dimensions
             )
             
             return response.data[0].embedding
