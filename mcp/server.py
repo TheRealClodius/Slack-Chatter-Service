@@ -537,29 +537,45 @@ class MCPStreamableHTTPServer:
     
     def _authenticate_request(self, headers: Dict[str, str]) -> MCPSession:
         """Authenticate request and return session"""
+        self.logger.debug(f"Authentication attempt with headers: {list(headers.keys())}")
+        
         # Check for existing session (MCP 2.0 compliant header)
         session_id = headers.get("Mcp-Session-Id")
         if session_id:
+            self.logger.debug(f"Attempting session authentication with ID: {session_id[:16]}...")
             try:
                 return self._validate_session(session_id)
-            except ValueError:
+            except ValueError as e:
+                self.logger.debug(f"Session validation failed: {e}")
                 pass  # Continue to other auth methods
         
         # Check for API key authentication
         auth_header = headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             api_key = auth_header[7:]  # Remove "Bearer " prefix
+            self.logger.debug(f"Attempting API key authentication with key: {api_key[:16]}...")
             
             if api_key.startswith("mcp_key_"):
                 # API key authentication
                 key_info = self.api_keys.get(api_key)
-                if key_info and datetime.utcnow() < key_info["expires_at"]:
-                    # Create session for API key
-                    return self._create_session(
-                        user_id=f"api_key_user_{secrets.token_urlsafe(8)}",
-                        scopes=key_info["scopes"],
-                        api_key=api_key
-                    )
+                self.logger.debug(f"API key lookup result: {key_info is not None}")
+                if key_info:
+                    self.logger.debug(f"Key expires at: {key_info.get('expires_at')}, current time: {datetime.utcnow()}")
+                    if datetime.utcnow() < key_info["expires_at"]:
+                        self.logger.info(f"API key authentication successful for key: {api_key[:16]}...")
+                        # Create session for API key
+                        return self._create_session(
+                            user_id=f"api_key_user_{secrets.token_urlsafe(8)}",
+                            scopes=key_info["scopes"],
+                            api_key=api_key
+                        )
+                    else:
+                        self.logger.warning(f"API key expired: {api_key[:16]}...")
+                else:
+                    self.logger.warning(f"API key not found in whitelist: {api_key[:16]}...")
+                    # Debug: Log all available keys
+                    available_keys = [k[:16] + "..." for k in self.api_keys.keys()]
+                    self.logger.debug(f"Available whitelisted keys: {available_keys}")
             
             elif api_key.startswith("oauth_"):
                 # OAuth token authentication
@@ -571,8 +587,14 @@ class MCPStreamableHTTPServer:
                         scopes=token_info["scopes"],
                         oauth_token=api_key
                     )
+            else:
+                self.logger.warning(f"Invalid API key format: {api_key[:16]}...")
+        else:
+            self.logger.warning("No Authorization header found or invalid format")
+            self.logger.debug(f"Auth header: {auth_header}")
         
         # No valid authentication found
+        self.logger.error("Authentication failed - no valid credentials found")
         raise ValueError("Authentication required")
     
     async def handle_mcp_request(self, method: str, headers: Dict[str, str], 

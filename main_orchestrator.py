@@ -195,7 +195,7 @@ class SlackChatterOrchestrator:
                 app,
                 host="0.0.0.0",
                 port=port,
-                log_level="info",
+                log_level="debug",
                 access_log=True
             )
             
