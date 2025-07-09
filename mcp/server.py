@@ -426,40 +426,77 @@ class MCPStreamableHTTPServer:
             "standard_version": "2025-03"
         }
         
-        # Generate default API key for development
-        self._generate_default_api_key()
+        # Initialize API key system with whitelisting
+        self._initialize_api_keys()
     
-    def _generate_default_api_key(self):
-        """Generate a secure API key for deployment"""
+    def _initialize_api_keys(self):
+        """Initialize API key system with secure whitelisting"""
         import os
         import secrets
         import hashlib
         
-        # Check for environment variable first
-        fixed_key = os.getenv("MCP_API_KEY")
+        # Load whitelisted API keys from environment
+        self._load_whitelisted_keys()
         
-        if fixed_key:
-            api_key = fixed_key
-            self.logger.info(f"Using configured API key from environment")
-        else:
-            # Generate cryptographically secure key
-            # Use 32 bytes (256 bits) of entropy
-            random_bytes = secrets.token_bytes(32)
-            # Create a deterministic but secure key for this deployment
-            deployment_seed = f"slack_chatter_mcp_{os.getenv('REPL_ID', 'local')}"
-            combined_entropy = hashlib.sha256(deployment_seed.encode() + random_bytes).hexdigest()
-            api_key = f"mcp_key_{combined_entropy[:48]}"  # 48 hex chars = 192 bits
-            self.logger.info(f"Generated secure API key for deployment")
+        # Generate deployment-specific key if none provided
+        if not self.api_keys:
+            self._generate_deployment_key()
+    
+    def _load_whitelisted_keys(self):
+        """Load pre-approved API keys from environment variables"""
+        import os
         
+        # Check for user-provided API key (secure method)
+        user_key = os.getenv("MCP_API_KEY")
+        if user_key and user_key.startswith("mcp_key_"):
+            self._whitelist_api_key(user_key, "User Provided Key")
+            self.logger.info("Whitelisted user-provided API key")
+        
+        # Check for multiple keys (comma-separated)
+        whitelist_keys = os.getenv("MCP_WHITELIST_KEYS", "")
+        if whitelist_keys:
+            for key in whitelist_keys.split(","):
+                key = key.strip()
+                if key and key.startswith("mcp_key_"):
+                    self._whitelist_api_key(key, "Whitelisted Key")
+            self.logger.info(f"Loaded {len(whitelist_keys.split(','))} whitelisted keys")
+    
+    def _whitelist_api_key(self, api_key: str, name: str = "Whitelisted Key"):
+        """Add an API key to the whitelist"""
         self.api_keys[api_key] = {
-            "name": "Slack Chatter MCP Key",
+            "name": name,
             "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
             "created_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(days=365)
+            "expires_at": datetime.utcnow() + timedelta(days=365),
+            "whitelisted": True
         }
         
-        # Log the key securely (only first 16 chars for identification)
-        self.logger.info(f"API key registered: {api_key[:16]}...")
+        # Log securely (only first 16 chars)
+        self.logger.info(f"Whitelisted API key: {api_key[:16]}...")
+    
+    def _generate_deployment_key(self):
+        """Generate a secure deployment-specific API key as fallback"""
+        import os
+        import secrets
+        import hashlib
+        
+        # Generate cryptographically secure key
+        # Use 32 bytes (256 bits) of entropy
+        random_bytes = secrets.token_bytes(32)
+        # Create a deterministic but secure key for this deployment
+        deployment_seed = f"slack_chatter_mcp_{os.getenv('REPL_ID', 'local')}"
+        combined_entropy = hashlib.sha256(deployment_seed.encode() + random_bytes).hexdigest()
+        api_key = f"mcp_key_{combined_entropy[:48]}"  # 48 hex chars = 192 bits
+        
+        self.api_keys[api_key] = {
+            "name": "Auto-Generated Deployment Key",
+            "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
+            "created_at": datetime.utcnow(),
+            "expires_at": datetime.utcnow() + timedelta(days=365),
+            "auto_generated": True
+        }
+        
+        self.logger.info(f"Generated secure deployment key: {api_key[:16]}...")
         return api_key
     
     def _create_session(self, user_id: str, scopes: List[str], 
