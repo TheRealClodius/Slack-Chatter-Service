@@ -183,6 +183,11 @@ class SlackIngester:
     
     async def _convert_message_data(self, msg_data: Dict, channel_id: str) -> Optional[SlackMessage]:
         """Convert Slack API message data to SlackMessage object"""
+        # Check for rich content types first
+        rich_content = await self._extract_rich_content(msg_data, channel_id)
+        if rich_content:
+            return rich_content
+            
         # Skip messages without text or from bots
         if not msg_data.get('text') or msg_data.get('subtype') == 'bot_message':
             return None
@@ -236,7 +241,8 @@ class SlackIngester:
             thread_ts=msg_data.get('thread_ts'),
             reply_count=msg_data.get('reply_count', 0),
             reactions=reactions,
-            is_thread_parent=bool(msg_data.get('reply_count', 0) > 0 and not msg_data.get('thread_ts'))
+            is_thread_parent=bool(msg_data.get('reply_count', 0) > 0 and not msg_data.get('thread_ts')),
+            content_type="message"
         )
         
         return message
@@ -355,7 +361,9 @@ class SlackIngester:
                             channel_name=channel_data.get('name', channel_id),
                             timestamp=datetime.fromtimestamp(file_data.get('created', 0), tz=timezone.utc),
                             is_canvas=True,
-                            canvas_title=file_data.get('title', 'Canvas')
+                            canvas_title=file_data.get('title', 'Canvas'),
+                            content_type="canvas",
+                            file_info=file_data
                         )
                         
                         canvas_messages.append(canvas_message)
@@ -406,4 +414,182 @@ class SlackIngester:
                 editor_names.append(editor_name)
             content_parts.append(f"Editors: {', '.join(editor_names)}")
         
+        return "\n".join(content_parts)
+    
+    async def _extract_rich_content(self, msg_data: Dict, channel_id: str) -> Optional[SlackMessage]:
+        """Extract rich content types like lists, workflows, posts, and files"""
+        # Check for file attachments
+        files = msg_data.get('files', [])
+        
+        for file_data in files:
+            file_type = file_data.get('filetype', '')
+            subtype = file_data.get('subtype', '')
+            mimetype = file_data.get('mimetype', '')
+            
+            # Handle different rich content types
+            content_type = "file"
+            content_text = ""
+            
+            # Slack Lists
+            if subtype == "slack_list" or file_type == "slack_list":
+                content_type = "list"
+                content_text = await self._extract_list_content(file_data)
+            
+            # Slack Workflows  
+            elif subtype == "workflow" or file_type == "workflow":
+                content_type = "workflow"
+                content_text = await self._extract_workflow_content(file_data)
+            
+            # Slack Posts
+            elif subtype == "post" or file_type == "post":
+                content_type = "post"
+                content_text = await self._extract_post_content(file_data)
+            
+            # Text files and documents
+            elif file_type in ["text", "plain", "markdown", "txt", "md"]:
+                content_type = "file"
+                content_text = await self._extract_text_file_content(file_data)
+            
+            # Code files
+            elif file_type in ["python", "javascript", "java", "cpp", "go", "rust", "php", "ruby"]:
+                content_type = "file"
+                content_text = await self._extract_code_file_content(file_data)
+                
+            # Skip if no meaningful content
+            if not content_text or len(content_text.strip()) < 10:
+                continue
+            
+            # Get user info
+            user_id = msg_data.get('user', file_data.get('user', ''))
+            user = await self.get_user_info(user_id) if user_id else None
+            user_name = user.name if user else 'Unknown'
+            
+            # Get channel info
+            channel = self.channels_cache.get(channel_id)
+            channel_name = channel[0].name if channel else channel_id
+            
+            # Create rich content message
+            timestamp = datetime.fromtimestamp(float(msg_data.get('ts', file_data.get('created', 0))), tz=timezone.utc)
+            
+            rich_message = SlackMessage(
+                id=f"{content_type}_{file_data.get('id', msg_data.get('ts', ''))}",
+                text=content_text,
+                user_id=user_id,
+                user_name=user_name,
+                channel_id=channel_id,
+                channel_name=channel_name,
+                timestamp=timestamp,
+                thread_ts=msg_data.get('thread_ts'),
+                content_type=content_type,
+                file_info=file_data
+            )
+            
+            return rich_message
+        
+        return None
+    
+    async def _extract_list_content(self, file_data: Dict) -> str:
+        """Extract content from Slack lists"""
+        content_parts = []
+        
+        # Add list title
+        title = file_data.get('title', file_data.get('name', ''))
+        if title:
+            content_parts.append(f"List Title: {title}")
+        
+        # Extract list items from preview or content
+        preview = file_data.get('preview', '')
+        if preview:
+            content_parts.append(f"List Items:\n{preview}")
+        
+        # Add list metadata
+        if file_data.get('size'):
+            content_parts.append(f"List size: {file_data['size']} bytes")
+            
+        return "\n".join(content_parts)
+    
+    async def _extract_workflow_content(self, file_data: Dict) -> str:
+        """Extract content from Slack workflows"""
+        content_parts = []
+        
+        # Add workflow title
+        title = file_data.get('title', file_data.get('name', ''))
+        if title:
+            content_parts.append(f"Workflow Title: {title}")
+        
+        # Extract workflow description from preview
+        preview = file_data.get('preview', '')
+        if preview:
+            content_parts.append(f"Workflow Description:\n{preview}")
+        
+        # Add workflow metadata
+        if file_data.get('app_name'):
+            content_parts.append(f"App: {file_data['app_name']}")
+            
+        return "\n".join(content_parts)
+    
+    async def _extract_post_content(self, file_data: Dict) -> str:
+        """Extract content from Slack posts"""
+        content_parts = []
+        
+        # Add post title
+        title = file_data.get('title', file_data.get('name', ''))
+        if title:
+            content_parts.append(f"Post Title: {title}")
+        
+        # Extract post content from preview
+        preview = file_data.get('preview', '')
+        if preview:
+            content_parts.append(f"Post Content:\n{preview}")
+        
+        # Add post metadata
+        if file_data.get('size'):
+            content_parts.append(f"Post size: {file_data['size']} bytes")
+            
+        return "\n".join(content_parts)
+    
+    async def _extract_text_file_content(self, file_data: Dict) -> str:
+        """Extract content from text files"""
+        content_parts = []
+        
+        # Add file title
+        title = file_data.get('title', file_data.get('name', ''))
+        if title:
+            content_parts.append(f"File: {title}")
+        
+        # Extract file content from preview
+        preview = file_data.get('preview', '')
+        if preview:
+            content_parts.append(f"Content:\n{preview}")
+        
+        # Add file metadata
+        if file_data.get('filetype'):
+            content_parts.append(f"File type: {file_data['filetype']}")
+        if file_data.get('size'):
+            content_parts.append(f"Size: {file_data['size']} bytes")
+            
+        return "\n".join(content_parts)
+    
+    async def _extract_code_file_content(self, file_data: Dict) -> str:
+        """Extract content from code files"""
+        content_parts = []
+        
+        # Add file title
+        title = file_data.get('title', file_data.get('name', ''))
+        if title:
+            content_parts.append(f"Code File: {title}")
+        
+        # Extract code content from preview
+        preview = file_data.get('preview', '')
+        if preview:
+            content_parts.append(f"Code:\n{preview}")
+        
+        # Add code metadata
+        if file_data.get('filetype'):
+            content_parts.append(f"Language: {file_data['filetype']}")
+        if file_data.get('lines'):
+            content_parts.append(f"Lines: {file_data['lines']}")
+        if file_data.get('size'):
+            content_parts.append(f"Size: {file_data['size']} bytes")
+            
         return "\n".join(content_parts) 
