@@ -30,6 +30,7 @@ dependencies = [
     # Optional development dependencies
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
+    "pinecone-client>=6.0.0",
 ]
 
 requires-python = ">=3.9"
