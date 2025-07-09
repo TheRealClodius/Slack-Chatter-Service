@@ -26,7 +26,7 @@ class SearchResult:
     metadata: Dict[str, Any]
 
 
-class SlackSearchService:
+class SearchService:
     """Dedicated service for searching Slack messages"""
     
     def __init__(self, embedding_service: Optional[EmbeddingService] = None, 
