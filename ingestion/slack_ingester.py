@@ -322,12 +322,17 @@ class SlackIngester:
                     canvas_content = await self._extract_canvas_content(file_data)
                     
                     if canvas_content:
+                        # Get creator user info
+                        creator_user_id = file_data.get('user', '')
+                        creator_user = await self.get_user_info(creator_user_id) if creator_user_id else None
+                        creator_name = creator_user.name if creator_user else 'Canvas'
+                        
                         # Create a message object for the canvas content
                         canvas_message = SlackMessage(
                             id=f"canvas_{canvas_file_id}",
                             text=canvas_content,
-                            user_id=file_data.get('user', ''),
-                            user_name=file_data.get('username', 'Canvas'),
+                            user_id=creator_user_id,
+                            user_name=creator_name,
                             channel_id=channel_id,
                             channel_name=channel_data.get('name', channel_id),
                             timestamp=datetime.fromtimestamp(file_data.get('created', 0), tz=timezone.utc),
@@ -373,9 +378,14 @@ class SlackIngester:
             read_time = file_data['canvas_readtime']
             content_parts.append(f"Estimated read time: {read_time:.1f} minutes")
         
-        # Add editor information
+        # Add editor information (resolve user IDs to names)
         editors = file_data.get('editors', [])
         if editors:
-            content_parts.append(f"Editors: {', '.join(editors)}")
+            editor_names = []
+            for editor_id in editors:
+                editor_user = await self.get_user_info(editor_id)
+                editor_name = f"@{editor_user.name}" if editor_user else editor_id
+                editor_names.append(editor_name)
+            content_parts.append(f"Editors: {', '.join(editor_names)}")
         
         return "\n".join(content_parts) 
