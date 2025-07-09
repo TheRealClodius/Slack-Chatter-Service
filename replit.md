@@ -301,7 +301,7 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
-- July 09, 2025. Recreated Pinecone index with 768 dimensions for text-embedding-3-small
+- July 09, 2025. Recreated Pinecone index with 1536 dimensions for text-embedding-3-small
 - July 09, 2025. Enhanced thread nesting to embed complete conversation context
 - July 09, 2025. Improved reaction handling with user attribution and proper nesting
 - July 09, 2025. Added comprehensive rich content extraction (lists, workflows, posts, code files)
