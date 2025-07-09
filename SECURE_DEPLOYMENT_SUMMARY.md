@@ -8,7 +8,7 @@ The Slack Chatter MCP server is now deployed with enterprise-grade security:
 - **Algorithm**: SHA256 + secrets.token_bytes(32)
 - **Entropy**: 192 bits (48 hexadecimal characters)
 - **Key Format**: `mcp_key_[48-hex-chars]`
-- **Current Key**: `mcp_key_6272e9d9c56ee99d27f1fa05f1f89b14db3f15a3041e6d60`
+- **Key Management**: Secure whitelisting via environment variables
 
 ### 🌐 Remote Access Details
 - **URL**: `https://slack-chronicler-andreiclodius.replit.app/mcp`
@@ -28,7 +28,7 @@ import requests
 
 # Connection details
 MCP_SERVER_URL = 'https://slack-chronicler-andreiclodius.replit.app/mcp'
-API_KEY = 'mcp_key_6272e9d9c56ee99d27f1fa05f1f89b14db3f15a3041e6d60'
+API_KEY = 'your-whitelisted-api-key'  # Set via MCP_API_KEY environment variable
 
 # Initialize session
 headers = {
@@ -62,10 +62,14 @@ headers['Mcp-Session-Id'] = session_id
 - Tool discovery: **3 tools available** ✅
 - API key security: **192-bit entropy** ✅
 
-### 🔍 Get Current API Key
-For development purposes, you can retrieve the current API key:
+### 🔐 API Key Management
+Set your secure API key via environment variables:
 ```bash
-curl https://slack-chronicler-andreiclodius.replit.app/dev/api-key
+# Set via environment variable (recommended)
+export MCP_API_KEY=your_secure_api_key
+
+# Or whitelist multiple keys
+export MCP_WHITELIST_KEYS=key1,key2,key3
 ```
 
 ### 📊 Background Services
