@@ -210,10 +210,17 @@ class SlackIngester:
         # Process reactions
         reactions = []
         for reaction_data in msg_data.get('reactions', []):
+            # Resolve user IDs to usernames for reactions
+            user_names = []
+            for user_id in reaction_data.get('users', []):
+                user_info = await self.get_user_info(user_id)
+                user_names.append(user_info.name if user_info else user_id)
+            
             reaction = SlackReaction(
                 name=reaction_data['name'],
                 count=reaction_data['count'],
-                users=reaction_data['users']
+                users=reaction_data['users'],
+                user_names=user_names
             )
             reactions.append(reaction)
         

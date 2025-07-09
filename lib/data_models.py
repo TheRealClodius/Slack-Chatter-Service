@@ -14,7 +14,8 @@ class SlackUser:
 class SlackReaction:
     name: str
     count: int
-    users: List[str]
+    users: List[str]  # User IDs who reacted
+    user_names: List[str] = field(default_factory=list)  # Resolved usernames
 
 @dataclass
 class SlackMessage:
@@ -62,8 +63,16 @@ class SlackMessage:
         
         # Add reactions if any
         if self.reactions:
-            reactions_text = ", ".join([f"{r.name}({r.count})" for r in self.reactions])
-            text_parts.append(f"Reactions: {reactions_text}")
+            reactions_list = []
+            for r in self.reactions:
+                if r.user_names:
+                    users_text = ", ".join(r.user_names[:3])  # Show first 3 users
+                    if len(r.user_names) > 3:
+                        users_text += f" and {len(r.user_names) - 3} others"
+                    reactions_list.append(f":{r.name}: ({r.count}) by {users_text}")
+                else:
+                    reactions_list.append(f":{r.name}: ({r.count})")
+            text_parts.append(f"Reactions: {', '.join(reactions_list)}")
         
         # Add thread replies if this is a thread parent
         if self.thread_replies:
@@ -71,8 +80,16 @@ class SlackMessage:
             for i, reply in enumerate(self.thread_replies, 1):
                 text_parts.append(f"Reply {i} by {reply.user_name} at {reply.timestamp.strftime('%H:%M')}: {reply.text}")
                 if reply.reactions:
-                    reply_reactions = ", ".join([f"{r.name}({r.count})" for r in reply.reactions])
-                    text_parts.append(f"  Reactions: {reply_reactions}")
+                    reply_reactions_list = []
+                    for r in reply.reactions:
+                        if r.user_names:
+                            users_text = ", ".join(r.user_names[:2])  # Show first 2 users for replies
+                            if len(r.user_names) > 2:
+                                users_text += f" +{len(r.user_names) - 2}"
+                            reply_reactions_list.append(f":{r.name}: ({r.count}) by {users_text}")
+                        else:
+                            reply_reactions_list.append(f":{r.name}: ({r.count})")
+                    text_parts.append(f"    Reactions: {', '.join(reply_reactions_list)}")
         
         return "\n".join(text_parts)
     
