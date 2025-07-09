@@ -202,6 +202,31 @@ async def cleanup_sessions():
     return {"message": "Expired sessions cleaned up"}
 
 
+@app.get("/dev/api-key")
+async def get_current_api_key():
+    """Get current deployment API key (development only)"""
+    if not mcp_streamable_server:
+        raise HTTPException(status_code=503, detail="Server not initialized")
+    
+    # Get the first API key (auto-generated deployment key)
+    api_keys = mcp_streamable_server.api_keys
+    if not api_keys:
+        raise HTTPException(status_code=404, detail="No API keys found")
+    
+    # Return the first key (usually the auto-generated one)
+    current_key = list(api_keys.keys())[0]
+    key_info = api_keys[current_key]
+    
+    return {
+        "api_key": current_key,
+        "name": key_info.get("name", "Unknown"),
+        "created_at": key_info.get("created_at", "Unknown"),
+        "expires_at": key_info.get("expires_at", "Unknown"),
+        "scopes": key_info.get("scopes", []),
+        "note": "Use this key for authentication with the MCP server"
+    }
+
+
 @app.get("/docs-example")
 async def api_docs_example():
     """Example API usage documentation"""
