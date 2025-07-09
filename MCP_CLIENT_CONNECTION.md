@@ -2,11 +2,10 @@
 
 ## Remote MCP Server (Replit Deployment)
 
-**WRONG URL:** `https://slack-chronicler-andreiclodius.replit.app/mcp` ❌  
-**CORRECT URL:** `https://[this-repl-name].[this-owner].replit.app/mcp` ✅  
-**Current API Key:** `mcp_key_6HyB54aY8oWoSADOOldYWo5sXMuZxK5DhYtraJMEqFU`
+**CORRECT URL:** `https://slack-chronicler-andreiclodius.replit.app/mcp` ✅  
+**STABLE API KEY:** `mcp_key_slack_chatter_2025_stable`
 
-**IMPORTANT:** You are connecting to the wrong Replit app! Use the URL of THIS Replit instance, not slack-chronicler-andreiclodius.replit.app
+**FIXED AUTHENTICATION:** Using consistent API key across all deployments
 
 **Note:** Server is accessible remotely on port 5000, bound to 0.0.0.0
 
@@ -17,8 +16,8 @@ import requests
 import json
 
 # Remote MCP server connection
-MCP_SERVER_URL = 'https://[your-repl-id].[your-username].replit.app/mcp'
-API_KEY = 'mcp_key_6HyB54aY8oWoSADOOldYWo5sXMuZxK5DhYtraJMEqFU'
+MCP_SERVER_URL = 'https://slack-chronicler-andreiclodius.replit.app/mcp'
+API_KEY = 'mcp_key_slack_chatter_2025_stable'
 
 # Initialize session
 headers = {

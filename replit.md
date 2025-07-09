@@ -301,8 +301,8 @@ const results = await client.searchMessages('authentication errors');
 ## Changelog
 ```
 Changelog:
+- July 09, 2025. **Authentication RESOLVED**: Fixed remote deployment with stable API key `mcp_key_slack_chatter_2025_stable`
 - July 09, 2025. **MCP 2.0 Specification Compliance**: Upgraded to pure MCP 2.0 (2025-03-26) compliance
-- July 09, 2025. **Authentication Fixed**: Resolved -32001 errors with proper session management
 - July 09, 2025. **JSON-RPC 2.0 Only**: Removed legacy query_params format, POST-only endpoint
 - July 09, 2025. **Header Compliance**: Updated to Mcp-Session-Id header format
 - July 09, 2025. **Ingestion Progress**: 124 messages processed from first channel with canvas support

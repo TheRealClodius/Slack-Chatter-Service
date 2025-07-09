@@ -431,15 +431,25 @@ class MCPStreamableHTTPServer:
     
     def _generate_default_api_key(self):
         """Generate a default API key for development"""
-        api_key = f"mcp_key_{secrets.token_urlsafe(32)}"
+        # Use a fixed key for consistent remote deployment
+        import os
+        fixed_key = os.getenv("MCP_API_KEY")
+        
+        if fixed_key:
+            api_key = fixed_key
+            self.logger.info(f"Using configured API key: {api_key}")
+        else:
+            # Generate consistent key for this deployment
+            api_key = "mcp_key_slack_chatter_2025_stable"
+            self.logger.info(f"Using stable API key: {api_key}")
+        
         self.api_keys[api_key] = {
-            "name": "Default Development Key",
+            "name": "Slack Chatter MCP Key",
             "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
             "created_at": datetime.utcnow(),
             "expires_at": datetime.utcnow() + timedelta(days=365)
         }
         
-        self.logger.info(f"Default API key generated: {api_key}")
         return api_key
     
     def _create_session(self, user_id: str, scopes: List[str], 
