@@ -488,15 +488,13 @@ class MCPStreamableHTTPServer:
         combined_entropy = hashlib.sha256(deployment_seed.encode() + random_bytes).hexdigest()
         api_key = f"mcp_key_{combined_entropy[:48]}"  # 48 hex chars = 192 bits
         
-        self.api_keys[api_key] = {
-            "name": "Auto-Generated Deployment Key",
-            "scopes": ["mcp:search", "mcp:channels", "mcp:stats"],
-            "created_at": datetime.utcnow(),
-            "expires_at": datetime.utcnow() + timedelta(days=365),
-            "auto_generated": True
-        }
+        # Use the whitelisting method to ensure proper registration
+        self._whitelist_api_key(api_key, "Auto-Generated Deployment Key")
         
-        self.logger.info(f"Generated secure deployment key: {api_key[:16]}...")
+        # Mark as auto-generated for identification
+        self.api_keys[api_key]["auto_generated"] = True
+        
+        self.logger.info(f"Generated and whitelisted deployment key: {api_key[:16]}...")
         return api_key
     
     def _create_session(self, user_id: str, scopes: List[str], 
