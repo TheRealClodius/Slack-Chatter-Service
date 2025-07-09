@@ -86,6 +86,15 @@ async def root():
     }
 
 
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all incoming requests for debugging"""
+    logging.info(f"Incoming request: {request.method} {request.url.path} from {request.client.host if request.client else 'unknown'}")
+    logging.info(f"All headers: {dict(request.headers)}")
+    response = await call_next(request)
+    logging.info(f"Response status: {response.status_code}")
+    return response
+
 @app.post("/mcp")
 async def mcp_endpoint(
     request: Request,
