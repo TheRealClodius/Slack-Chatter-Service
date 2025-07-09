@@ -91,8 +91,7 @@ async def mcp_endpoint(
     request: Request,
     mcp_session_id: Optional[str] = Header(None, alias="mcp-session-id"),
     authorization: Optional[str] = Header(None),
-    method: Optional[str] = Query(None, description="MCP method for GET requests"),
-    **query_params
+    method: Optional[str] = Query(None, description="MCP method for GET requests")
 ):
     """
     Single MCP endpoint supporting both GET and POST (March 2025 Standard)
@@ -133,8 +132,9 @@ async def mcp_endpoint(
         
         elif http_method == "GET":
             # GET: Convert query params to JSON-RPC
+            query_params_dict = dict(request.query_params)
             # Remove FastAPI internal params
-            filtered_params = {k: v for k, v in query_params.items() 
+            filtered_params = {k: v for k, v in query_params_dict.items() 
                              if not k.startswith('_') and v is not None}
             
             response = await mcp_streamable_server.handle_mcp_request(
