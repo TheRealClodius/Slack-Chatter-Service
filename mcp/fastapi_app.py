@@ -91,7 +91,8 @@ async def mcp_endpoint(
     request: Request,
     mcp_session_id: Optional[str] = Header(None, alias="mcp-session-id"),
     authorization: Optional[str] = Header(None),
-    method: Optional[str] = Query(None, description="MCP method for GET requests")
+    method: Optional[str] = Query(None, description="MCP method for GET requests"),
+    query_params: Optional[str] = Query(None, description="Query parameters for GET requests")
 ):
     """
     Single MCP endpoint supporting both GET and POST (March 2025 Standard)
@@ -131,18 +132,49 @@ async def mcp_endpoint(
             )
         
         elif http_method == "GET":
-            # GET: Convert query params to JSON-RPC
-            query_params_dict = dict(request.query_params)
-            # Remove FastAPI internal params
-            filtered_params = {k: v for k, v in query_params_dict.items() 
-                             if not k.startswith('_') and v is not None}
-            
-            response = await mcp_streamable_server.handle_mcp_request(
-                method=http_method,
-                headers=headers,
-                body=None,
-                query_params=filtered_params
-            )
+            # GET: Handle client-specific query_params format
+            if query_params:
+                # Parse "search_messages,query" format
+                parts = query_params.split(',', 1)
+                if len(parts) == 2:
+                    action, query = parts
+                    if action == "search_messages":
+                        # Convert to proper JSON-RPC format
+                        json_rpc_request = {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "tools/call",
+                            "params": {
+                                "name": "search_slack_messages",
+                                "arguments": {
+                                    "query": query,
+                                    "top_k": 10
+                                }
+                            }
+                        }
+                        
+                        response = await mcp_streamable_server.handle_mcp_request(
+                            method="POST",  # Process as POST internally
+                            headers=headers,
+                            body=json.dumps(json_rpc_request),
+                            query_params=None
+                        )
+                    else:
+                        raise HTTPException(status_code=400, detail=f"Unknown action: {action}")
+                else:
+                    raise HTTPException(status_code=400, detail="Invalid query_params format")
+            else:
+                # Standard GET handling
+                query_params_dict = dict(request.query_params)
+                filtered_params = {k: v for k, v in query_params_dict.items() 
+                                 if not k.startswith('_') and v is not None and k not in ['method', 'query_params']}
+                
+                response = await mcp_streamable_server.handle_mcp_request(
+                    method=http_method,
+                    headers=headers,
+                    body=None,
+                    query_params=filtered_params
+                )
         
         else:
             raise HTTPException(status_code=405, detail="Method not allowed")
