@@ -488,23 +488,40 @@ async def mcp_endpoint(
     MCP 2.0 compliant endpoint (2025-03-26 specification)
     
     Only accepts HTTP POST with JSON-RPC 2.0 body
-    Requires OAuth 2.1 authentication
+    Supports OAuth 2.1 authentication or API key authentication
     
     Headers:
     - Mcp-Session-Id: Session identifier for authenticated sessions
-    - Authorization: Bearer <oauth_access_token>
+    - Authorization: Bearer <oauth_access_token> OR Bearer <mcp_key_...>
     """
     if not mcp_streamable_server:
         raise HTTPException(status_code=503, detail="Server not initialized")
     
     try:
-        # OAuth 2.1 authentication required
+        # Authentication required (OAuth or API key)
         if not authorization:
             raise HTTPException(status_code=401, detail="Authorization header required")
         
-        # Validate OAuth token
-        token_data = validate_oauth_token(authorization)
-        logging.info(f"Authenticated request with scopes: {token_data['scope']}")
+        # Try OAuth token first, then fall back to API key
+        token_data = None
+        auth_type = None
+        
+        # Extract token from authorization header
+        token = authorization[7:] if authorization.startswith("Bearer ") else None
+        if not token:
+            raise HTTPException(status_code=401, detail="Invalid authorization header format")
+        
+        # Check if it's an OAuth token or API key
+        if token.startswith("mcp_key_"):
+            # API key authentication - let MCP server handle validation
+            token_data = validate_api_key(authorization)
+            auth_type = "api_key"
+            logging.info(f"API key authentication attempt for key: {token[:16]}...")
+        else:
+            # OAuth token authentication
+            token_data = validate_oauth_token(authorization)
+            auth_type = "oauth"
+            logging.info(f"OAuth authentication successful with scopes: {token_data['scope']}")
         
         # Log all incoming headers for debugging
         all_headers = dict(request.headers)
@@ -517,7 +534,11 @@ async def mcp_endpoint(
             logging.debug(f"Session ID found: {mcp_session_id}")
         
         headers["Authorization"] = authorization
-        headers["OAuth-Scopes"] = token_data["scope"]  # Pass scopes to MCP server
+        
+        # Pass appropriate scope information to MCP server
+        if auth_type == "oauth":
+            headers["OAuth-Scopes"] = token_data["scope"]  # Pass OAuth scopes
+        # For API keys, let MCP server handle scope determination
         
         # Only accept POST requests for MCP 2.0 compliance
         if request.method != "POST":
