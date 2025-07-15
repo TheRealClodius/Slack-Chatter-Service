@@ -459,6 +459,25 @@ def validate_oauth_token(authorization_header: str) -> Dict:
     return token_data
 
 
+def validate_api_key(authorization_header: str) -> Dict:
+    """Validate API key - delegate to MCP server for validation"""
+    if not authorization_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid authorization header format")
+    
+    token = authorization_header[7:]  # Remove "Bearer " prefix
+    
+    # Check if this looks like an API key
+    if not token.startswith("mcp_key_"):
+        raise HTTPException(status_code=401, detail="Invalid API key format")
+    
+    # Return API key info - let MCP server handle actual validation
+    return {
+        "type": "api_key",
+        "scope": "mcp:search mcp:channels mcp:stats",  # Default scopes for API keys
+        "token": token
+    }
+
+
 @app.post("/mcp")
 async def mcp_endpoint(
     request: Request,
